@@ -13,7 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
-
+from nfnets.models.nf_resnet import nf_resnet50
 import flwr
 from flwr.client import Client, ClientApp, NumPyClient
 from flwr.server import ServerApp, ServerConfig, ServerAppComponents
@@ -21,6 +21,12 @@ from flwr.server.strategy import FedAvg, FedAdagrad
 from flwr.simulation import run_simulation
 from flwr_datasets import FederatedDataset
 from flwr.common import ndarrays_to_parameters, NDArrays, Scalar, Context
+def Net():
+    """
+    Returns the NF-ResNet50 model configured for 10 output classes.
+    Modify this function to use a different model from the nfnets-pytorch repository if desired.
+    """
+    return nf_resnet50(num_classes=10)
 
 custom_config = {
         **dotenv_values("./envs/env.loss"),
@@ -57,30 +63,71 @@ class FlowerClient(fl.client.NumPyClient):
         state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
         self.net.load_state_dict(state_dict, strict=True)
         
-    def model_train(self, net, trainloader, valloader, forgetloader, epochs: int) -> Dict:
-        # TODO Implement model training with maximizer and minimizer
+    def model_train(self, net, trainloader, valloader, forgetloader, epochs: int,phase: str) -> Dict:
+        criterion_learning = nn.CrossEntropyLoss()
+        optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9)
+        net.train()
+        total_loss = 0.0
+        total_correct = 0
+        total_samples = 0
+        if phase == "LEARN":
+            for _ in range(epochs):
+                for images, labels in trainloader:
+                    images, labels = images.to(DEVICE), labels.to(DEVICE)
+                    optimizer.zero_grad()
+                    outputs = net(images)
+                    loss = criterion_learning(outputs, labels)
+                    loss.backward()
+                    optimizer.step()
+                    with torch.no_grad():
+                        total_loss += loss.item() * images.size(0)
+                        preds = outputs.argmax(dim=1)
+                        total_correct += (preds == labels).sum().item()
+                        total_samples += images.size(0)
+        elif phase == "UNLEARN":
+            # Unlearning phase with combined loss
+            #TODO Unlearning complete
+        avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
+        accuracy = total_correct / total_samples if total_samples > 0 else 0.0
+        return {"loss": avg_loss, "accuracy": accuracy}
 
-        
-        return running_loss, correct, total
     
     def model_eval(self, net, loader) -> Dict:
-        # TODO Implement model evaluation with maximizer and minimizer could be for test or evaluatin
-        return running_loss, correct, total
+        """Evaluate the model on a given data loader."""
+        criterion = nn.CrossEntropyLoss()
+        net.eval()
+        total_loss = 0.0
+        total_correct = 0
+        total_samples = 0
+        with torch.no_grad():
+            for images, labels in loader:
+                images, labels = images.to(DEVICE), labels.to(DEVICE)
+                outputs = net(images)
+                loss = criterion(outputs, labels)
+                total_loss += loss.item() * images.size(0)
+                preds = outputs.argmax(dim=1)
+                total_correct += (preds == labels).sum().item()
+                total_samples += images.size(0)
+        avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
+        accuracy = total_correct / total_samples if total_samples > 0 else 0.0
+        return avg_loss,accuracy
     
 
     def fit(self, parameters, config):
         print(f"[Client {self.partition_id}] fit, config: {config}")
-        current_phase = config.get("Phase", "MAX")
+        current_phase = config.get("Phase", "LEARN")  # Default to "LEARN"
+        local_epochs = config.get("local_epochs", 100)  # Default to 1 epoch
         
         # if "data_indices" in config:
         #     self.data_indices = config["data_indices"]
         
         self.set_parameters(parameters)
         
-        #TODO train model
-        
+        metrics_dict = self.model_train(self.net, self.trainloader, self.valloader, self.forgetloader, local_epochs, phase=current_phase)    
         # Include data indices in the metrics returned to server
         metrics = {
+        "train_loss": metrics_dict["loss"],
+        "train_accuracy": metrics_dict["accuracy"]
         }
         
         # Return updated model parameters and number of training examples
@@ -109,8 +156,7 @@ class FlowerClient(fl.client.NumPyClient):
         return loss, len(self.test_loader.dataset), metrics
 
 def client_fn(context: Context) -> Client:
-    #TODO load model based on custome config.
-    net = ().to(DEVICE)
+    net = Net().to(DEVICE)
 
     # Read the node_config to fetch data partition associated to this node
     partition_id = context.node_config["partition-id"]

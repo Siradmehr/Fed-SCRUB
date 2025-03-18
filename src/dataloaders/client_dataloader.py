@@ -5,28 +5,35 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
-from typing import List
-def load_datasets(partition_id: int, num_partitions: int) -> List[DataLoader]:
-    fds = FederatedDataset(dataset="cifar10", partitioners={"train": num_partitions})
+from typing import List, Dict
+
+def load_datasets(partition_id: int, num_partitions: int, seed: int = 42, shuffle: bool = True, forgetting_config: Dict = {}, dataset_name: str = "cifar10") -> List[DataLoader]:
+    fds = FederatedDataset(dataset=dataset_name, partitioners={"train": num_partitions}, shuffle=shuffle, seed=seed)
     partition = fds.load_partition(partition_id)
-    # Divide data on each node: 80% train, 20% test
-    partition_train_test = partition.train_test_split(test_size=0.2, seed=42)
+
+    # First split: 90% train+val, 10% test
+    train_val_test_split = partition.train_test_split(test_size=0.1, seed=seed)
+
+    # Second split: Split the 90% into 8/9 train (~80% of total) and 1/9 val (~10% of total)
+    train_val_split = train_val_test_split["train"].train_test_split(test_size=1/9, seed=seed)
+
+    # Define transforms
     pytorch_transforms = transforms.Compose(
         [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
     )
 
     def apply_transforms(batch):
-        # Instead of passing transforms to CIFAR10(..., transform=transform)
-        # we will use this function to dataset.with_transform(apply_transforms)
-        # The transforms object is exactly the same
         batch["img"] = [pytorch_transforms(img) for img in batch["img"]]
         return batch
 
-    partition_train_test = partition_train_test.with_transform(apply_transforms)
-    trainloader = DataLoader(partition_train_test["train"], batch_size=32, shuffle=True)
-    valloader = DataLoader(partition_train_test["test"], batch_size=32)
-    testset = fds.load_split("test").with_transform(apply_transforms)
-    testloader = DataLoader(testset, batch_size=32)
-    # TODO forget set setting,
-    
+    # Apply transforms to all datasets
+    train_data = train_val_split["train"].with_transform(apply_transforms)
+    val_data = train_val_split["test"].with_transform(apply_transforms)
+    test_data = train_val_test_split["test"].with_transform(apply_transforms)
+
+    # Create data loaders
+    trainloader = DataLoader(train_data, batch_size=32, shuffle=True)
+    valloader = DataLoader(val_data, batch_size=32)
+    testloader = DataLoader(test_data, batch_size=32)
+
     return trainloader, valloader, testloader

@@ -84,14 +84,17 @@ class FlowerClient(fl.client.NumPyClient):
                         preds = outputs.argmax(dim=1)
                         total_correct += (preds == labels).sum().item()
                         total_samples += images.size(0)
-        elif phase == "UNLEARN":
-            # Unlearning phase with combined loss
-            #TODO Unlearning complete
+        elif phase == "MAXIMIZE":
+            pass
+            #TODO Forgetting complete
+        elif phase == "MINIMIZE":
+            pass
+            #TODO remembering complete
+
         avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
         accuracy = total_correct / total_samples if total_samples > 0 else 0.0
         return {"loss": avg_loss, "accuracy": accuracy}
 
-    
     def model_eval(self, net, loader) -> Dict:
         """Evaluate the model on a given data loader."""
         criterion = nn.CrossEntropyLoss()
@@ -117,9 +120,6 @@ class FlowerClient(fl.client.NumPyClient):
         print(f"[Client {self.partition_id}] fit, config: {config}")
         current_phase = config.get("Phase", "LEARN")  # Default to "LEARN"
         local_epochs = config.get("local_epochs", 100)  # Default to 1 epoch
-        
-        # if "data_indices" in config:
-        #     self.data_indices = config["data_indices"]
         
         self.set_parameters(parameters)
         

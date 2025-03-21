@@ -6,13 +6,9 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 from dotenv import load_dotenv, dotenv_values
 from flwr.server.client_manager import SimpleClientManager
-
+from utils.utils import load_custom_config
 # Load configuration
-custom_config = {
-    **dotenv_values("./envs/env.loss"),
-    **dotenv_values("./envs/env"),
-    **dotenv_values("./envs/env.training"),
-}
+custom_config = load_custom_config()
 
 
 class PhasedFedAvg(FedAvg):

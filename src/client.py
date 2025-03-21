@@ -15,6 +15,7 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 import nfnets.models.resnet as nf_resnet
 from nfnets import nf_resnet18
+from .dataloaders.client_dataloader import load_datasets, load_datasets_with_forgetting
 
 import flwr
 from flwr.client import Client, ClientApp, NumPyClient
@@ -23,19 +24,16 @@ from flwr.server.strategy import FedAvg, FedAdagrad
 from flwr.simulation import run_simulation
 from flwr_datasets import FederatedDataset
 from flwr.common import ndarrays_to_parameters, NDArrays, Scalar, Context
-from utils import KL,JS,X2, get_losses
-def Net():
+from utils.losses import KL,JS,X2, get_losses
+from utils.utils import load_custom_config
+def Net(num_class : int =10):
     """
-    Returns the NF-ResNet50 model configured for 10 output classes.
+    Returns the NF-ResNet18 model configured for 10 output classes.
     Modify this function to use a different model from the nfnets-pytorch repository if desired.
     """
-    return nf_resnet50(num_classes=10)
+    return nf_resnet18(num_class=num_class)
 
-custom_config = {
-        **dotenv_values("./envs/env.loss"),
-        **dotenv_values("./envs/env"),
-        **dotenv_values("./envs/env.training"), 
-        }
+custom_config = load_custom_config()
 
 DEVICE = torch.device(custom_config["DEVICE"])  # Try "cuda" to train on GPU
 print(f"Training on {DEVICE}")
@@ -49,11 +47,7 @@ class FlowerClient(fl.client.NumPyClient):
         self.valloader = valloader
         self.forgetloader = forget_loader
         self.testloader = test_loader
-        self.custom_config = {
-        **dotenv_values("./envs/env.loss"),
-        **dotenv_values("./envs/env"),
-        **dotenv_values("./envs/env.training"), 
-        }
+        self.custom_config = load_custom_config()
 
     def get_parameters(self, net) -> List[np.ndarray]:
         print(f"[Client {self.partition_id}] get_parameters")
@@ -205,28 +199,6 @@ class FlowerClient(fl.client.NumPyClient):
         # Return updated model parameters and number of training examples
         return self.get_parameters(self.net), len(self.train_loader.dataset), metrics
 
-    def evaluate(self, parameters, config):
-        # Get current round's phase
-        current_phase = config.get("Phase", 0)
-        
-        # Update local model parameters
-        self.set_parameters(parameters)
-        
-        # Evaluate the model
-        self.model.eval()
-        # Add your evaluation logic here
-        
-        # For example purposes, returning dummy metrics
-        loss = 0.0
-        accuracy = 0.0
-        
-        # Include data indices in evaluation metrics
-        metrics = {
-            "accuracy": accuracy,
-        }
-        
-        return loss, len(self.test_loader.dataset), metrics
-
 def client_fn(context: Context) -> Client:
     net = Net().to(DEVICE)
 
@@ -234,7 +206,10 @@ def client_fn(context: Context) -> Client:
     partition_id = context.node_config["partition-id"]
     num_partitions = context.node_config["num-partitions"]
 
-    trainloader, valloader, _ = load_datasets(partition_id, num_partitions)
+    forget_set_config = {i:0.0 for i in range(custom_config["NUM_CLASSES"])}
+
+    retrainloader, forgetloader, valloader, testloader = load_datasets_with_forgetting(partition_id, num_partitions\
+    , dataset_name=custom_config["DATASET"], forgetting_config=custom_config["FORGETTING"])
     return FlowerClient(partition_id, net, trainloader, valloader).to_client()
 
 

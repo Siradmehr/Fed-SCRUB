@@ -4,3 +4,6 @@ datasets/*
 datasets/
 datasets
 .idea/
+checkpoints/
+checkpoints/*
+checkpoints

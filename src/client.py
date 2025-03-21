@@ -13,7 +13,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
-from nfnets.models.nf_resnet import nf_resnet50
+import nfnets.models.resnet as nf_resnet
+from nfnets import nf_resnet18
+
 import flwr
 from flwr.client import Client, ClientApp, NumPyClient
 from flwr.server import ServerApp, ServerConfig, ServerAppComponents

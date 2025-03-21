@@ -21,6 +21,7 @@ from flwr.server.strategy import FedAvg, FedAdagrad
 from flwr.simulation import run_simulation
 from flwr_datasets import FederatedDataset
 from flwr.common import ndarrays_to_parameters, NDArrays, Scalar, Context
+from utils import KL,JS,X2, get_losses
 def Net():
     """
     Returns the NF-ResNet50 model configured for 10 output classes.
@@ -55,46 +56,115 @@ class FlowerClient(fl.client.NumPyClient):
     def get_parameters(self, net) -> List[np.ndarray]:
         print(f"[Client {self.partition_id}] get_parameters")
         return [val.cpu().numpy() for _, val in net.state_dict().items()]
-
+    
     def set_parameters(self, parameters: List[np.ndarray], net) -> None:
         print(f"[Client {self.partition_id}] set_parameters")
         # Set net parameters from a list of numpy arrays
         params_dict = zip(self.net.state_dict().keys(), parameters)
         state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
         self.net.load_state_dict(state_dict, strict=True)
-        
-    def model_train(self, net, trainloader, valloader, forgetloader, epochs: int,phase: str) -> Dict:
-        criterion_learning = nn.CrossEntropyLoss()
+
+    def model_train(self, net, trainloader, valloader, forgetloader, epochs: int, phase: str) -> Dict:
+
+        num_classes = int(self.custom_config.get("NUM_CLASSES", 10))
+        T = float(self.custom_config.get("KD_T", 2.0))  # Temperature for soft distillation
+        loss_type_cls = self.custom_config.get("LOSSCLS", "CE")
+        loss_type_div = self.custom_config.get("LOSSDIV", "KL")
+        loss_type_kd = self.custom_config.get("LOSSKD", "KL")
+
+        criterion_cls = get_losses(loss_type_cls, num_classes, T)
+        criterion_div = get_losses(loss_type_div, num_classes, T)
+        criterion_div_min = get_losses(loss_type_kd, num_classes, T)  # Used for MAXIMIZE phase
+
         optimizer = torch.optim.SGD(net.parameters(), lr=0.01, momentum=0.9)
         net.train()
         total_loss = 0.0
         total_correct = 0
         total_samples = 0
+
+        # Hyperparameters
+        alpha = float(self.custom_config.get("ALPHA", 0.5))
+        beta = float(self.custom_config.get("BETA", 0.0))     # Optional for KD loss
+        gamma = float(self.custom_config.get("GAMMA", 1.0))
+
         if phase == "LEARN":
             for _ in range(epochs):
                 for images, labels in trainloader:
                     images, labels = images.to(DEVICE), labels.to(DEVICE)
                     optimizer.zero_grad()
                     outputs = net(images)
-                    loss = criterion_learning(outputs, labels)
+                    loss = criterion_cls(outputs, labels)
                     loss.backward()
                     optimizer.step()
+
                     with torch.no_grad():
                         total_loss += loss.item() * images.size(0)
                         preds = outputs.argmax(dim=1)
                         total_correct += (preds == labels).sum().item()
                         total_samples += images.size(0)
+
+            # Save as teacher for SCRUB
+            self.teacher_model = Net().to(DEVICE)
+            self.teacher_model.load_state_dict(net.state_dict())
         elif phase == "MAXIMIZE":
-            pass
-            #TODO Forgetting complete
+            if not hasattr(self, 'teacher_model'):
+                raise ValueError("Teacher model not found. Run LEARN phase first.")
+            teacher = self.teacher_model
+            teacher.eval()
+
+            for _ in range(epochs):
+                for images, labels in forgetloader:
+                    images, labels = images.to(DEVICE), labels.to(DEVICE)
+                    optimizer.zero_grad()
+                    with torch.no_grad():
+                        teacher_outputs = teacher(images)
+                        teacher_probs = F.softmax(teacher_outputs, dim=1)
+
+                    student_outputs = net(images)
+                    loss = -criterion_div_min(student_outputs, teacher_probs)  # Maximize divergence
+                    loss.backward()
+                    optimizer.step()
+
+                    with torch.no_grad():
+                        total_loss += loss.item() * images.size(0)
+                        preds = student_outputs.argmax(dim=1)
+                        total_correct += (preds == labels).sum().item()
+                        total_samples += images.size(0)
+
         elif phase == "MINIMIZE":
-            pass
-            #TODO remembering complete
+            if not hasattr(self, 'teacher_model'):
+                raise ValueError("Teacher model not found. Run LEARN phase first.")
+            teacher = self.teacher_model
+            teacher.eval()
+
+            for _ in range(epochs):
+                for images, labels in trainloader:
+                    images, labels = images.to(DEVICE), labels.to(DEVICE)
+                    optimizer.zero_grad()
+
+                    with torch.no_grad():
+                        teacher_outputs = teacher(images)
+                        teacher_probs = F.softmax(teacher_outputs, dim=1)
+
+                    student_outputs = net(images)
+
+                    loss_cls = criterion_cls(student_outputs, labels)
+                    loss_div = criterion_div(student_outputs, teacher_probs)
+
+                    loss = gamma * loss_cls + alpha * loss_div
+                    loss.backward()
+                    optimizer.step()
+
+                    with torch.no_grad():
+                        total_loss += loss.item() * images.size(0)
+                        preds = student_outputs.argmax(dim=1)
+                        total_correct += (preds == labels).sum().item()
+                        total_samples += images.size(0)
 
         avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
         accuracy = total_correct / total_samples if total_samples > 0 else 0.0
         return {"loss": avg_loss, "accuracy": accuracy}
-
+    
     def model_eval(self, net, loader) -> Dict:
         """Evaluate the model on a given data loader."""
         criterion = nn.CrossEntropyLoss()

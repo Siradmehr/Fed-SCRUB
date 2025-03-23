@@ -23,9 +23,9 @@ from flwr.server.strategy import FedAvg, FedAdagrad
 from flwr.simulation import run_simulation
 from flwr_datasets import FederatedDataset
 from flwr.common import ndarrays_to_parameters, NDArrays, Scalar, Context
-from utils.losses import KL,JS,X2, get_losses
-from utils.utils import load_custom_config, load_initial_model
-from utils.models import get_model
+from .utils.losses import KL,JS,X2, get_losses
+from .utils.utils import load_custom_config, load_initial_model
+from .utils.models import get_model
 
 
 custom_config = load_custom_config()
@@ -43,6 +43,7 @@ class FlowerClient(fl.client.NumPyClient):
         self.forgetloader = forget_loader
         self.testloader = test_loader
         self.custom_config = load_custom_config()
+
 
     def get_parameters(self, net) -> List[np.ndarray]:
         print(f"[Client {self.partition_id}] get_parameters")
@@ -175,7 +176,7 @@ class FlowerClient(fl.client.NumPyClient):
         avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
         accuracy = total_correct / total_samples if total_samples > 0 else 0.0
         return avg_loss,accuracy
-    
+
 
     def fit(self, parameters, config):
         print(f"[Client {self.partition_id}] fit, config: {config}")
@@ -195,7 +196,8 @@ class FlowerClient(fl.client.NumPyClient):
         return self.get_parameters(self.net), len(self.train_loader.dataset), metrics
 
 def client_fn(context: Context) -> Client:
-    net = load_initial_model(custom_config)
+
+
 
 
 
@@ -203,6 +205,10 @@ def client_fn(context: Context) -> Client:
     # Read the node_config to fetch data partition associated to this node
     partition_id = context.node_config["partition-id"]
     num_partitions = context.node_config["num-partitions"]
+    print(f"Client {partition_id} / {num_partitions}")
+    print("client calling")
+    net = load_initial_model(custom_config)
+    print("client loading model")
 
     forget_set_config = {i:0.0 for i in range(int(custom_config["NUM_CLASSES"]))}
     for key in custom_config["FORGET_CLASSES"]:
@@ -212,7 +218,3 @@ def client_fn(context: Context) -> Client:
     retrainloader, forgetloader, valloader, testloader = load_datasets_with_forgetting(partition_id, num_partitions\
     , dataset_name=custom_config["DATASET"], forgetting_config=custom_config["FORGETTING"])
     return FlowerClient(net, partition_id, retrainloader, valloader, forgetloader, testloader).to_client()
-
-
-# Create the ClientApp
-app = ClientApp(client_fn=client_fn)

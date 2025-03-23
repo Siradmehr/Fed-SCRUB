@@ -6,13 +6,13 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 from dotenv import load_dotenv, dotenv_values
 from flwr.server.client_manager import SimpleClientManager
-from utils.utils import load_custom_config
+from .utils.utils import load_custom_config
 # Load configuration
 custom_config = load_custom_config()
 import torch
 from collections import OrderedDict
-from utils.utils import save_model
-from utils.models import get_model
+from .utils.utils import save_model
+from .utils.models import get_model
 from flwr.common import ndarrays_to_parameters, NDArrays, Scalar, Context
 class PhasedFedAvg(FedAvg):
     """Federated Averaging strategy with phase control."""
@@ -52,6 +52,7 @@ class PhasedFedAvg(FedAvg):
         # Sample clients for the current round
         sample_size, min_num_clients = self.num_fit_clients(client_manager.num_available())
         clients = client_manager.sample(num_clients=sample_size, min_num_clients=min_num_clients)
+        print(f"{len(clients)} clients selected for training")
 
         # Return client/config pairs
         fit_configurations = []
@@ -130,16 +131,15 @@ def save_server_model(self, result, server_round):
 #         config=fl.server.ServerConfig(num_rounds=num_rounds),
 #     )
 #
-def get_parameters(self, net) -> List[np.ndarray]:
-    print(f"[Client {self.partition_id}] get_parameters")
+def get_parameters(net) -> List[np.ndarray]:
     return [val.cpu().numpy() for _, val in net.state_dict().items()]
 
-def set_parameters(self, parameters: List[np.ndarray], net) -> None:
-    print(f"[Client {self.partition_id}] set_parameters")
-    # Set net parameters from a list of numpy arrays
-    params_dict = zip(self.net.state_dict().keys(), parameters)
-    state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
-    self.net.load_state_dict(state_dict, strict=True)
+# def set_parameters(parameters: List[np.ndarray], net) -> None:
+#     print(f"[Client {self.partition_id}] set_parameters")
+#     # Set net parameters from a list of numpy arrays
+#     params_dict = zip(self.net.state_dict().keys(), parameters)
+#     state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
+#     self.net.load_state_dict(state_dict, strict=True)
 
 def server_fn(context: Context):
     # Read from config
@@ -147,7 +147,7 @@ def server_fn(context: Context):
     min_clients = int(custom_config.get("MIN_CLIENTS", 2))
 
     # Initialize model parameters
-    ndarrays = get_parameters(get_model(custom_config))
+    ndarrays = get_parameters(net=get_model(custom_config))
     parameters = ndarrays_to_parameters(ndarrays)
 
 
@@ -161,6 +161,7 @@ def server_fn(context: Context):
         initial_parameters=parameters
     )
     config = ServerConfig(num_rounds=num_rounds)
+    print("server configured")
 
     return ServerAppComponents(strategy=strategy, config=config)
 

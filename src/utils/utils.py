@@ -1,6 +1,6 @@
 from ast import literal_eval
 from dotenv import load_dotenv, dotenv_values
-from models import get_model
+from .models import get_model
 import torch
 import os
 def load_custom_config():
@@ -10,6 +10,7 @@ def load_custom_config():
             **dotenv_values("./envs/.env"),
             **dotenv_values("./envs/.env.training"),
             }
+    print(custom_config)
     custom_config["FORGET_CLASS"] = literal_eval(custom_config["FORGET_CLASS"])
     return custom_config
 

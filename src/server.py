@@ -13,7 +13,7 @@ import torch
 from collections import OrderedDict
 from utils.utils import save_model
 from utils.models import get_model
-
+from flwr.common import ndarrays_to_parameters, NDArrays, Scalar, Context
 class PhasedFedAvg(FedAvg):
     """Federated Averaging strategy with phase control."""
 
@@ -115,12 +115,40 @@ def save_server_model(self, result, server_round):
         save_model(model, custom_config, f"federated_round_{server_round}",
                    epoch=server_round, loss=metrics.get("loss", None))
 
-def start_server():
-    """Start the Flower server with phased strategy."""
-    # Get configuration values
+# def start_server():
+#     """Start the Flower server with phased strategy."""
+#     # Get configuration values
+#
+#     # Create client manager
+#     client_manager = SimpleClientManager()
+#
+#     # Create server with client manager
+#     server = fl.server.Server(client_manager=client_manager, strategy=strategy)
+#     fl.server.start_server(
+#         server_address="0.0.0.0:8080",
+#         server=server,
+#         config=fl.server.ServerConfig(num_rounds=num_rounds),
+#     )
+#
+def get_parameters(self, net) -> List[np.ndarray]:
+    print(f"[Client {self.partition_id}] get_parameters")
+    return [val.cpu().numpy() for _, val in net.state_dict().items()]
+
+def set_parameters(self, parameters: List[np.ndarray], net) -> None:
+    print(f"[Client {self.partition_id}] set_parameters")
+    # Set net parameters from a list of numpy arrays
+    params_dict = zip(self.net.state_dict().keys(), parameters)
+    state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
+    self.net.load_state_dict(state_dict, strict=True)
+
+def server_fn(context: Context):
+    # Read from config
     num_rounds = int(custom_config.get("NUM_ROUNDS", 3))
     min_clients = int(custom_config.get("MIN_CLIENTS", 2))
 
+    # Initialize model parameters
+    ndarrays = get_parameters(get_model(custom_config))
+    parameters = ndarrays_to_parameters(ndarrays)
 
 
     strategy = PhasedFedAvg(
@@ -130,19 +158,16 @@ def start_server():
         min_fit_clients=min_clients,
         min_evaluate_clients=min_clients,
         min_available_clients=min_clients,
+        initial_parameters=parameters
     )
+    config = ServerConfig(num_rounds=num_rounds)
 
-    # Create client manager
-    client_manager = SimpleClientManager()
-
-    # Create server with client manager
-    server = fl.server.Server(client_manager=client_manager, strategy=strategy)
-    fl.server.start_server(
-        server_address="0.0.0.0:8080",
-        server=server,
-        config=fl.server.ServerConfig(num_rounds=num_rounds),
-    )
+    return ServerAppComponents(strategy=strategy, config=config)
 
 
-if __name__ == "__main__":
-    start_server()
+# Create ServerApp
+app = ServerApp(server_fn=server_fn)
+
+#
+# if __name__ == "__main__":
+#     start_server()

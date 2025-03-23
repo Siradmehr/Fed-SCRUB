@@ -215,4 +215,4 @@ def client_fn(context: Context) -> Client:
 
 
 # Create the ClientApp
-client = ClientApp(client_fn=client_fn)
+app = ClientApp(client_fn=client_fn)

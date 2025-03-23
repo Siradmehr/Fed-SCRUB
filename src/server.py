@@ -166,7 +166,8 @@ def server_fn(context: Context):
     return ServerAppComponents(strategy=strategy, config=config)
 
 
-# Create ServerApp
+# Create ServerApp:wq
+
 app = ServerApp(server_fn=server_fn)
 
 #

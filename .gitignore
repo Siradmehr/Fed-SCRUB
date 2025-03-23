@@ -8,3 +8,9 @@ checkpoints/
 checkpoints/*
 checkpoints
 __pycache__/
+# Create .gitignore file
+__pycache__/
+*/__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class

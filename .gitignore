@@ -7,3 +7,4 @@ datasets
 checkpoints/
 checkpoints/*
 checkpoints
+__pycache__/

@@ -13,8 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
-import nfnets.models.resnet as nf_resnet
-from nfnets import nf_resnet18
+
 from .dataloaders.client_dataloader import load_datasets, load_datasets_with_forgetting
 
 import flwr
@@ -25,13 +24,9 @@ from flwr.simulation import run_simulation
 from flwr_datasets import FederatedDataset
 from flwr.common import ndarrays_to_parameters, NDArrays, Scalar, Context
 from utils.losses import KL,JS,X2, get_losses
-from utils.utils import load_custom_config
-def Net(num_class : int =10):
-    """
-    Returns the NF-ResNet18 model configured for 10 output classes.
-    Modify this function to use a different model from the nfnets-pytorch repository if desired.
-    """
-    return nf_resnet18(num_class=num_class)
+from utils.utils import load_custom_config, load_initial_model
+from utils.models import get_model
+
 
 custom_config = load_custom_config()
 
@@ -100,7 +95,7 @@ class FlowerClient(fl.client.NumPyClient):
                         total_samples += images.size(0)
 
             # Save as teacher for SCRUB
-            self.teacher_model = Net().to(DEVICE)
+            self.teacher_model =get_model(self.custom_config)
             self.teacher_model.load_state_dict(net.state_dict())
         elif phase == "MAXIMIZE":
             if not hasattr(self, 'teacher_model'):
@@ -193,24 +188,30 @@ class FlowerClient(fl.client.NumPyClient):
         # Include data indices in the metrics returned to server
         metrics = {
         "train_loss": metrics_dict["loss"],
-        "train_accuracy": metrics_dict["accuracy"]
+        "train_accuracy": metrics_dict["accuracy"],
         }
         
         # Return updated model parameters and number of training examples
         return self.get_parameters(self.net), len(self.train_loader.dataset), metrics
 
 def client_fn(context: Context) -> Client:
-    net = Net().to(DEVICE)
+    net = load_initial_model(custom_config)
+
+
+
 
     # Read the node_config to fetch data partition associated to this node
     partition_id = context.node_config["partition-id"]
     num_partitions = context.node_config["num-partitions"]
 
-    forget_set_config = {i:0.0 for i in range(custom_config["NUM_CLASSES"])}
+    forget_set_config = {i:0.0 for i in range(int(custom_config["NUM_CLASSES"]))}
+    for key in custom_config["FORGET_CLASSES"]:
+        forget_set_config[key] = custom_config["FORGET_CLASSES"][key]
+
 
     retrainloader, forgetloader, valloader, testloader = load_datasets_with_forgetting(partition_id, num_partitions\
     , dataset_name=custom_config["DATASET"], forgetting_config=custom_config["FORGETTING"])
-    return FlowerClient(partition_id, net, trainloader, valloader).to_client()
+    return FlowerClient(net, partition_id, retrainloader, valloader, forgetloader, testloader).to_client()
 
 
 # Create the ClientApp

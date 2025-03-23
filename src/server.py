@@ -9,28 +9,38 @@ from flwr.server.client_manager import SimpleClientManager
 from utils.utils import load_custom_config
 # Load configuration
 custom_config = load_custom_config()
-
+import torch
+from collections import OrderedDict
+from utils.utils import save_model
+from utils.models import get_model
 
 class PhasedFedAvg(FedAvg):
     """Federated Averaging strategy with phase control."""
 
     def __init__(
             self,
+            starting_phase: str = "LEARN",
             *args,
-            phase_schedule: List[str] = ["LEARN", "MAXIMIZE", "MINIMIZE"],
             **kwargs
     ):
         super().__init__(*args, **kwargs)
-        self.phase_schedule = phase_schedule
-        self.current_phase = phase_schedule[0]
+        self.current_phase = starting_phase
+
+    def phase_schedule(self, current_phase):
+        switch = {
+            "LEARN": "LEARN",
+            "MAXIMIZE": "MINIMIZE",
+            "MINIMIZE": "MAXIMIZE"
+        }
+        return switch[current_phase]
 
     def configure_fit(
             self, server_round: int, parameters: Parameters, client_manager
     ):
         """Configure the next round of training with phase information."""
         # Determine the current phase based on round number
-        phase_idx = (server_round - 1) % len(self.phase_schedule)
-        self.current_phase = self.phase_schedule[phase_idx]
+        # phase_idx = (server_round - 1) % len(self.phase_schedule)
+        # self.current_phase = self.phase_schedule[phase_idx]
 
         print(f"Round {server_round}: Phase = {self.current_phase}")
 
@@ -72,8 +82,10 @@ class PhasedFedAvg(FedAvg):
             print("No clients participated in the aggregation")
             return None, {}
 
-        # Use parent class's aggregation with filtered results
-        return super().aggregate_fit(server_round, filtered_results, failures)
+        result = super().aggregate_fit(server_round, filtered_results, failures) # Use parent class's aggregation with filtered results
+        self.current_phase = self.phase_schedule(self.current_phase)
+        self.save_server_model(result, server_round)
+        return result
 
     def configure_evaluate(
             self, server_round: int, parameters: Parameters, client_manager
@@ -89,21 +101,35 @@ class PhasedFedAvg(FedAvg):
             eval_configurations.append((client, config))
         return eval_configurations
 
+def save_server_model(self, result, server_round):
+    if result:
+        parameters, metrics = result
+        model = get_model(custom_config)
+
+        # Convert parameters to model state dict
+        params_dict = zip(model.state_dict().keys(), [torch.tensor(v) for v in parameters.tensors])
+        state_dict = OrderedDict({k: v for k, v in params_dict})
+        model.load_state_dict(state_dict, strict=True)
+
+        # Save model checkpoint using the utility function
+        save_model(model, custom_config, f"federated_round_{server_round}",
+                   epoch=server_round, loss=metrics.get("loss", None))
 
 def start_server():
     """Start the Flower server with phased strategy."""
     # Get configuration values
     num_rounds = int(custom_config.get("NUM_ROUNDS", 3))
     min_clients = int(custom_config.get("MIN_CLIENTS", 2))
-    phase_schedule = custom_config.get("PHASE_SCHEDULE", "LEARN,MAXIMIZE,MINIMIZE").split(",")
+
+
 
     strategy = PhasedFedAvg(
+        starting_phase="LEARN",
         fraction_fit=1.0,
         fraction_evaluate=1.0,
         min_fit_clients=min_clients,
         min_evaluate_clients=min_clients,
         min_available_clients=min_clients,
-        phase_schedule=phase_schedule,
     )
 
     # Create client manager

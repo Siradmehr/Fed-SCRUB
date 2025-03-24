@@ -48,7 +48,7 @@ def load_datasets(partition_id: int, num_partitions: int, seed: int = 42, shuffl
 def load_datasets_with_forgetting(partition_id: int, num_partitions: int, seed: int = 42, shuffle: bool = True,
                                   forgetting_config: Dict = {}, dataset_name: str = "cifar10") -> tuple[
     DataLoader, DataLoader, DataLoader, DataLoader]:
-    fds = FederatedDataset(dataset=dataset_name, partitioners={"train": num_partitions}, shuffle=shuffle, seed=seed)
+    fds = FederatedDataset(dataset=dataset_name, partitioners={"train": num_partitions}, shuffle=shuffle, seed=seed, root = "./data/" )
     partition = fds.load_partition(partition_id)
 
     # First split: 90% train+val, 10% test

@@ -196,6 +196,7 @@ class FlowerClient(fl.client.NumPyClient):
         return self.get_parameters(self.net), len(self.train_loader.dataset), metrics
 
 def client_fn(context: Context) -> Client:
+    print("client")
 
 
 

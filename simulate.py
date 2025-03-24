@@ -12,5 +12,5 @@ server_app = ServerApp(server_fn=server_fn)
 run_simulation(
     server_app=server_app,
     client_app=client_app,
-    num_supernodes=10,  # equivalent to setting `num-supernodes` in the pyproject.toml
+    num_supernodes=1,  # equivalent to setting `num-supernodes` in the pyproject.toml
 )

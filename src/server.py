@@ -67,6 +67,7 @@ class PhasedFedAvg(FedAvg):
             failures
     ):
         """Aggregate model updates from clients based on participation flag."""
+        print(failures)
         print(f"Aggregating updates from {len(results)} clients, {len(failures)} failures")
 
         # Filter clients based on participation flag

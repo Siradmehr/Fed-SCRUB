@@ -36,6 +36,7 @@ print(f"Flower {flwr.__version__} / PyTorch {torch.__version__}")
 
 class FlowerClient(fl.client.NumPyClient):
     def __init__(self, net, partition_id, trainloader, valloader, forget_loader, test_loader):
+
         self.net = net
         self.partition_id = partition_id
         self.train_loader = trainloader

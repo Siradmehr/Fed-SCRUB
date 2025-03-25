@@ -218,5 +218,5 @@ def client_fn(context: Context) -> Client:
 
 
     retrainloader, forgetloader, valloader, testloader = load_datasets_with_forgetting(partition_id, num_partitions\
-    , dataset_name=custom_config["DATASET"], forgetting_config=custom_config["FORGETTING"])
+    , dataset_name=custom_config["DATASET"], forgetting_config=custom_config["FORGET_CLASS"])
     return FlowerClient(net, partition_id, retrainloader, valloader, forgetloader, testloader).to_client()

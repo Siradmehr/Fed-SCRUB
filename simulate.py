@@ -1,3 +1,22 @@
+import torch
+print('__CUDNN VERSION:', torch.backends.cudnn.version())
+print('__Number CUDA Devices:', torch.cuda.device_count())
+from src.utils.utils import load_custom_config
+from src.dataloaders.client_dataloader import load_datasets_with_forgetting
+# Load configuration
+custom_config = load_custom_config()
+print(custom_config)
+device = torch.device(custom_config["DEVICE"] if torch.cuda.is_available() else "cpu")
+print(device)
+torch.cuda.set_device(device)
+
+print('__Devices')
+from subprocess import call
+call(["nvidia-smi", "--format=csv", "--query-gpu=index,name,driver_version,memory.total,memory.used,memory.free"])
+print('Active CUDA Device: GPU', torch.cuda.current_device())
+print ('Available devices ', torch.cuda.device_count())
+print ('Current cuda device ', torch.cuda.current_device())
+
 from flwr.simulation import run_simulation
 from src.client import client_fn
 from src.server import server_fn
@@ -10,6 +29,8 @@ from src.dataloaders.client_dataloader import load_datasets_with_forgetting
 # Load configuration
 custom_config = load_custom_config()
 print(custom_config)
+device = torch.device(custom_config["DEVICE"] if torch.cuda.is_available() else "cpu")
+print(device)
 #
 # print("testing dataloader")
 # partition_id = 1
@@ -29,5 +50,5 @@ server_app = ServerApp(server_fn=server_fn)
 run_simulation(
     server_app=server_app,
     client_app=client_app,
-    num_supernodes=1,  # equivalent to setting `num-supernodes` in the pyproject.toml
+    num_supernodes=4,  # equivalent to setting `num-supernodes` in the pyproject.toml
 )

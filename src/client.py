@@ -44,12 +44,14 @@ class FlowerClient(fl.client.NumPyClient):
         self.forgetloader = forget_loader
         self.testloader = test_loader
         self.custom_config = load_custom_config()
+        self.device = torch.device(self.custom_config["DEVICE"] if torch.cuda.is_available() else "cpu")
+        self.net.to(device)
 
 
     def get_parameters(self, net) -> List[np.ndarray]:
         print(f"[Client {self.partition_id}] get_parameters")
         return [val.cpu().numpy() for _, val in net.state_dict().items()]
-    
+
     def set_parameters(self, parameters: List[np.ndarray], net) -> None:
         print(f"[Client {self.partition_id}] set_parameters")
         # Set net parameters from a list of numpy arrays
@@ -200,10 +202,6 @@ def client_fn(context: Context) -> Client:
     print("client")
 
 
-
-
-
-
     # Read the node_config to fetch data partition associated to this node
     partition_id = context.node_config["partition-id"]
     num_partitions = context.node_config["num-partitions"]
@@ -213,10 +211,10 @@ def client_fn(context: Context) -> Client:
     print("client loading model")
 
     forget_set_config = {i:0.0 for i in range(int(custom_config["NUM_CLASSES"]))}
-    for key in custom_config["FORGET_CLASSES"]:
-        forget_set_config[key] = custom_config["FORGET_CLASSES"][key]
+    for key in custom_config["FORGET_CLASS"]:
+        forget_set_config[key] = custom_config["FORGET_CLASS"][key]
 
 
     retrainloader, forgetloader, valloader, testloader = load_datasets_with_forgetting(partition_id, num_partitions\
-    , dataset_name=custom_config["DATASET"], forgetting_config=custom_config["FORGET_CLASS"])
+    , dataset_name=custom_config["DATASET"], forgetting_config=forget_set_config)
     return FlowerClient(net, partition_id, retrainloader, valloader, forgetloader, testloader).to_client()

@@ -178,7 +178,7 @@ class FlowerClient(fl.client.NumPyClient):
         accuracy = total_correct / total_samples if total_samples > 0 else 0.0
         return {"loss": avg_loss, "accuracy": accuracy}
     
-    def model_eval(self, loader) -> Dict:
+    def model_eval(self) -> Dict:
         """Evaluate the model on a given data loader."""
         criterion = nn.CrossEntropyLoss()
         self.net.eval()
@@ -186,7 +186,9 @@ class FlowerClient(fl.client.NumPyClient):
         total_correct = 0
         total_samples = 0
         with torch.no_grad():
-            for images, labels in loader:
+            for idxs, batch_data in enumerate(self.valloader):
+                images = batch_data["img"]
+                labels = batch_data["label"]
                 images, labels = images.to(DEVICE), labels.to(DEVICE)
                 outputs = self.net(images)
                 loss = criterion(outputs, labels)
@@ -216,6 +218,12 @@ class FlowerClient(fl.client.NumPyClient):
         
         # Return updated model parameters and number of training examples
         return self.get_parameters(), len(self.train_loader.dataset), metrics
+
+    def evaluate(self, parameters, config):
+        """Evaluate the model on the data this client has."""
+        self.set_parameters(parameters)
+        loss, accuracy = self.model_eval()
+        return loss, len(self.valloader.dataset), {"accuracy": accuracy}
 
 def client_fn(context: Context) -> Client:
     os.environ['CUDA_LAUNCH_BLOCKING']="1"

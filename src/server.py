@@ -1,3 +1,8 @@
+import os
+
+os.environ['CUDA_LAUNCH_BLOCKING']="1"
+os.environ['TORCH_USE_CUDA_DSA'] = "1"
+
 import flwr as fl
 from flwr.common import Parameters
 from flwr.server import ServerApp, ServerConfig, ServerAppComponents
@@ -62,8 +67,7 @@ class FedCustom(FedAvg):
         self, client_manager: ClientManager
     ) -> Optional[Parameters]:
         """Initialize global model parameters."""
-        ndarrays = get_parameters(self.initial_parameters)
-        return ndarrays_to_parameters(ndarrays)
+        return self.initial_parameters
 
     def configure_fit(
         self, server_round: int, parameters: Parameters, client_manager: ClientManager
@@ -86,15 +90,16 @@ class FedCustom(FedAvg):
         half_clients = n_clients // 2
         standard_config = {"lr": 0.001}
         standard_config["Phase"] = self.current_phase
-        standard_config["local_epochs"] = int(custom_config.get("LOCAL_EPOCHS", 1))
+        standard_config["local_epochs"] = int(custom_config.get("LOCAL_EPOCHS", 10))
         higher_lr_config = {"lr": 0.003}
         fit_configurations = []
         for idx, client in enumerate(clients):
+            print(idx)
             if idx < half_clients:
                 fit_configurations.append((client, FitIns(parameters, standard_config)))
             else:
                 fit_configurations.append(
-                    (client, FitIns(parameters, higher_lr_config))
+                    (client, FitIns(parameters, standard_config))
                 )
         return fit_configurations
 
@@ -114,8 +119,10 @@ class FedCustom(FedAvg):
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]],
     ) -> Tuple[Optional[Parameters], Dict[str, Scalar]]:
         """Aggregate fit results using weighted average."""
+
+        print(f"Aggregating aggregate_fit updates from {len(results)} clients, {len(failures)} failures")
         print(failures)
-        print(f"Aggregating updates from {len(results)} clients, {len(failures)} failures")
+        
         weights_results = [
             (parameters_to_ndarrays(fit_res.parameters), fit_res.num_examples)
             for _, fit_res in results
@@ -157,6 +164,10 @@ class FedCustom(FedAvg):
     ) -> Tuple[Optional[float], Dict[str, Scalar]]:
         """Aggregate evaluation losses using weighted average."""
 
+        print(f"Aggregating aggregate_evaluate updates from {len(results)} clients, {len(failures)} failures")
+        print(failures)
+        
+
 
 
         if not results:
@@ -188,6 +199,8 @@ class FedCustom(FedAvg):
         """Use a fraction of available clients for evaluation."""
         num_clients = int(num_available_clients * self.fraction_evaluate)
         return max(num_clients, self.min_evaluate_clients), self.min_available_clients
+import os
+
 
 
 def save_server_model(self, result, server_round):
@@ -208,20 +221,13 @@ def save_server_model(self, result, server_round):
 def get_parameters(net) -> List[np.ndarray]:
     return [val.cpu().numpy() for _, val in net.state_dict().items()]
 
-# def set_parameters(parameters: List[np.ndarray], net) -> None:
-#     print(f"[Client {self.partition_id}] set_parameters")
-#     # Set net parameters from a list of numpy arrays
-#     params_dict = zip(self.net.state_dict().keys(), parameters)
-#     state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
-#     self.net.load_state_dict(state_dict, strict=True)
-
 def server_fn(context: Context):
+    os.environ['CUDA_LAUNCH_BLOCKING']="1"
+    os.environ['TORCH_USE_CUDA_DSA'] = "1"
     # Read from config
     num_rounds = int(custom_config.get("NUM_ROUNDS", 10))
-    min_clients = int(custom_config.get("MIN_CLIENTS", 2))
+    min_clients = int(custom_config.get("MIN_CLIENTS", 3))
 
-    # Initialize model parameters
-    model = get_model(custom_config)
     ndarrays = get_parameters(net=get_model(custom_config))
     parameters = ndarrays_to_parameters(ndarrays)
 
@@ -233,7 +239,7 @@ def server_fn(context: Context):
         min_fit_clients=min_clients,
         min_evaluate_clients=min_clients,
         min_available_clients=min_clients,
-        initial_parameters=model,
+        initial_parameters=parameters,
     )
     config = ServerConfig(num_rounds=num_rounds)
     print("server configured")

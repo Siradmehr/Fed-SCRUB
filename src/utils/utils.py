@@ -3,6 +3,26 @@ from dotenv import load_dotenv, dotenv_values
 from .models import get_model
 import torch
 import os
+
+import torch
+from src.dataloaders.client_dataloader import load_datasets_with_forgetting
+# Load configuration
+from subprocess import call
+
+
+def get_gpu():
+    print('__CUDNN VERSION:', torch.backends.cudnn.version())
+    print('__Number CUDA Devices:', torch.cuda.device_count())
+    custom_config = load_custom_config()
+    print(custom_config)
+    device = torch.device(custom_config["DEVICE"] if torch.cuda.is_available() else "cpu")
+    print(device)
+    torch.cuda.set_device(device)
+    call(["nvidia-smi", "--format=csv", "--query-gpu=index,name,driver_version,memory.total,memory.used,memory.free"])
+    print('Active CUDA Device: GPU', torch.cuda.current_device())
+    print ('Available devices ', torch.cuda.device_count())
+    print ('Current cuda device ', torch.cuda.current_device())
+    
 def load_custom_config():
 
     custom_config = {
@@ -13,6 +33,13 @@ def load_custom_config():
     print(custom_config)
     custom_config["FORGET_CLASS"] = literal_eval(custom_config["FORGET_CLASS"])
     return custom_config
+
+
+# def setup():
+#     custom_config = load_custom_config()
+#     config
+#     saving_directory = f"./checkpoints/{}"
+#     return custom_config
 
 
 def load_initial_model(custom_config):

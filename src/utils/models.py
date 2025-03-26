@@ -445,5 +445,8 @@ def nf_wide_resnet101_2(alpha: float = 0.2, beta: float = 1.0, activation: str =
                       alpha=alpha, beta=beta, activation=activation, base_conv=base_conv, **kwargs)
 
 
+import torch
+# model = torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=True)
 def get_model(cutom_config):
+    return torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=False)
     return nf_resnet18()

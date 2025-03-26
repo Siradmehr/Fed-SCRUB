@@ -78,6 +78,7 @@ class X2(torch.nn.Module):
 
 
 def get_losses(loss, nclasses, T):
+    return nn.CrossEntropyLoss()
     if loss == "CE":
         return nn.CrossEntropyLoss()
     elif loss == "KL":

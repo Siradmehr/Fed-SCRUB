@@ -90,17 +90,14 @@ class FedCustom(FedAvg):
         half_clients = n_clients // 2
         standard_config = {"lr": 0.001}
         standard_config["Phase"] = self.current_phase
-        standard_config["local_epochs"] = int(custom_config.get("LOCAL_EPOCHS", 10))
-        higher_lr_config = {"lr": 0.003}
+        standard_config["local_epochs"] = int(custom_config.get("LOCAL_EPOCHS"))
+
         fit_configurations = []
         for idx, client in enumerate(clients):
+            new_config = standard_config
+            new_config[""] =
             print(idx)
-            if idx < half_clients:
-                fit_configurations.append((client, FitIns(parameters, standard_config)))
-            else:
-                fit_configurations.append(
-                    (client, FitIns(parameters, standard_config))
-                )
+            fit_configurations.append((client, FitIns(parameters, standard_config)))
         return fit_configurations
 
 

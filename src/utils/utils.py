@@ -25,7 +25,6 @@ def get_gpu():
 def load_custom_config():
 
     custom_config = {
-            **dotenv_values("./envs/.env.loss"),
             **dotenv_values("./envs/.env"),
             **dotenv_values("./envs/.env.training"),
             }
@@ -43,7 +42,7 @@ def setup():
     with open(f"{custom_config['SAVING_DIR']}/custom_config.json") as f:
         f.write(json.dumps(custom_config))
 
-    custom_config["LOADED_MODEL"] = load_initial_model(custom_config['MODEL_NAME'], custom_config["RESUME"]
+    custom_config["LOADED_MODEL"] = load_initial_model(custom_config['MODEL_NAME'], custom_config["RESUME"])
     # TODO LOADING forget_index for the future, retrain_index, valindex, testindex
     return custom_config
 

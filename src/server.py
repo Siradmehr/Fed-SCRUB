@@ -11,8 +11,9 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 from dotenv import load_dotenv, dotenv_values
 from flwr.server.client_manager import SimpleClientManager
-from .utils.utils import load_custom_config
+from .utils.utils import load_custom_config, setup
 # Load configuration
+import os
 custom_config = load_custom_config()
 import torch
 from collections import OrderedDict
@@ -87,15 +88,11 @@ class FedCustom(FedAvg):
 
         # Create custom configs
         n_clients = len(clients)
-        half_clients = n_clients // 2
-        standard_config = {"lr": 0.001}
-        standard_config["Phase"] = self.current_phase
-        standard_config["local_epochs"] = int(custom_config.get("LOCAL_EPOCHS"))
-
+        standard_config = {"lr": custom_config["LR"], "Phase": self.current_phase,
+                           "local_epochs": int(custom_config.get("LOCAL_EPOCHS"))}
         fit_configurations = []
         for idx, client in enumerate(clients):
-            new_config = standard_config
-            new_config[""] =
+            # TODO choose the index of client to forget.
             print(idx)
             fit_configurations.append((client, FitIns(parameters, standard_config)))
         return fit_configurations
@@ -125,6 +122,8 @@ class FedCustom(FedAvg):
             for _, fit_res in results
         ]
         parameters_aggregated = ndarrays_to_parameters(aggregate(weights_results))
+        self.save_server_model(parameters_aggregated, server_round)
+
         metrics_aggregated = {}
         self.current_phase = self.phase_schedule(self.current_phase)
         return parameters_aggregated, metrics_aggregated
@@ -163,6 +162,8 @@ class FedCustom(FedAvg):
 
         print(f"Aggregating aggregate_evaluate updates from {len(results)} clients, {len(failures)} failures")
         print(failures)
+
+        # TODO STORE BEST
         
 
 
@@ -196,41 +197,34 @@ class FedCustom(FedAvg):
         """Use a fraction of available clients for evaluation."""
         num_clients = int(num_available_clients * self.fraction_evaluate)
         return max(num_clients, self.min_evaluate_clients), self.min_available_clients
-import os
 
-
-
-def save_server_model(self, result, server_round):
-    if result:
-        parameters, metrics = result
-        model = get_model(custom_config)
-
-        # Convert parameters to model state dict
-        params_dict = zip(model.state_dict().keys(), [torch.tensor(v) for v in parameters.tensors])
+    def save_server_model(self, params, server_round):
+        model = custom_config["LOADED_MODEL"]
+        params_dict = zip(model.state_dict().keys(), [torch.tensor(v) for v in params.tensors])
         state_dict = OrderedDict({k: v for k, v in params_dict})
         model.load_state_dict(state_dict, strict=True)
-
-        # Save model checkpoint using the utility function
-        save_model(model, custom_config, f"federated_round_{server_round}",
-                   epoch=server_round, loss=metrics.get("loss", None))
+        save_model(model, custom_config, server_round)
 
 
 def get_parameters(net) -> List[np.ndarray]:
     return [val.cpu().numpy() for _, val in net.state_dict().items()]
 
 def server_fn(context: Context):
+    global custom_config
+    custom_config = setup()
     os.environ['CUDA_LAUNCH_BLOCKING']="1"
     os.environ['TORCH_USE_CUDA_DSA'] = "1"
     # Read from config
-    num_rounds = int(custom_config.get("NUM_ROUNDS", 10))
-    min_clients = int(custom_config.get("MIN_CLIENTS", 3))
+    num_rounds = int(custom_config.get("NUM_ROUNDS"))
+    min_clients = int(custom_config.get("MIN_CLIENTS"))
+    starting_phase = custom_config.get("STARTING_PHASE")
 
-    ndarrays = get_parameters(net=get_model(custom_config))
+    ndarrays = get_parameters(custom_config["LOADED_MODEL"])
     parameters = ndarrays_to_parameters(ndarrays)
 
 
     strategy = FedCustom(
-        starting_phase="LEARN",
+        starting_phase=starting_phase,
         fraction_fit=1.0,
         fraction_evaluate=1.0,
         min_fit_clients=min_clients,
@@ -243,11 +237,4 @@ def server_fn(context: Context):
 
     return ServerAppComponents(strategy=strategy, config=config)
 
-
-# Create ServerApp:wq
-
 app = ServerApp(server_fn=server_fn)
-
-#
-# if __name__ == "__main__":
-#     start_server()

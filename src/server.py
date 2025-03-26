@@ -51,6 +51,7 @@ class FedCustom(FedAvg):
         self.min_available_clients = min_available_clients
         self.initial_parameters = initial_parameters
         self.starting_phase = "LEARN"
+        self.current_phase = self.starting_phase
 
 
 

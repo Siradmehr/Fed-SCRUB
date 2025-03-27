@@ -36,8 +36,6 @@ from .utils.models import get_model
 custom_config = load_custom_config()
 
 DEVICE = torch.device(custom_config["DEVICE"])  # Try "cuda" to train on GPU
-print(f"Training on {DEVICE}")
-print(f"Flower {flwr.__version__} / PyTorch {torch.__version__}")
 
 class FlowerClient(fl.client.NumPyClient):
     def __init__(self, net, partition_id, trainloader, valloader, forget_loader, test_loader):
@@ -51,6 +49,7 @@ class FlowerClient(fl.client.NumPyClient):
         self.custom_config = load_custom_config()
         self.device = torch.device(self.custom_config["DEVICE"] if torch.cuda.is_available() else "cpu")
         self.net.to(self.device)
+        self.best_acc = 0
         print("gpu in client")
         get_gpu()
 
@@ -74,7 +73,7 @@ class FlowerClient(fl.client.NumPyClient):
 
         print("training started")
 
-        num_classes = int(self.custom_config.get("NUM_CLASSES", 10))
+        num_classes = int(self.custom_config.get("NUM_CLASSES"))
         T = float(self.custom_config.get("KD_T", 2.0))  # Temperature for soft distillation
         loss_type_cls = self.custom_config.get("LOSSCLS", "CE")
         loss_type_div = self.custom_config.get("LOSSDIV", "KL")
@@ -98,7 +97,6 @@ class FlowerClient(fl.client.NumPyClient):
         if phase == "LEARN":
             print("number of epochs in this", epochs)
             for eps in range(epochs):
-                print("epoch", eps)
                 for idxs, batch_data in enumerate(trainloader):
                     images = batch_data["img"]
                     labels = batch_data["label"]
@@ -108,8 +106,8 @@ class FlowerClient(fl.client.NumPyClient):
                     loss = criterion_cls(outputs, labels)
                     loss.backward()
                     optimizer.step()
-                    if idxs % 10 == 0:
-                        print(idxs)
+                    # if idxs % 10 == 0:
+                    #     print(idxs)
                     with torch.no_grad():
                         total_loss += loss.item() * images.size(0)
                         preds = outputs.argmax(dim=1)
@@ -204,10 +202,9 @@ class FlowerClient(fl.client.NumPyClient):
     def fit(self, parameters, config):
         print(f"[Client {self.partition_id}] fit, config: {config}")
         current_phase = config.get("Phase", "LEARN")  # Default to "LEARN"
-        local_epochs = config.get("local_epochs", 100)  # Default to 1 epoch
+        local_epochs = config.get("local_epochs")  # Default to 1 epoch
         
         self.set_parameters(parameters)
-        print()
         
         metrics_dict = self.model_train(self.train_loader, self.valloader, self.forgetloader, local_epochs, phase=current_phase)    
         # Include data indices in the metrics returned to server
@@ -228,7 +225,6 @@ class FlowerClient(fl.client.NumPyClient):
 def client_fn(context: Context) -> Client:
     os.environ['CUDA_LAUNCH_BLOCKING']="1"
     os.environ['TORCH_USE_CUDA_DSA'] = "1"
-    print("client")
 
 
     # Read the node_config to fetch data partition associated to this node
@@ -236,7 +232,7 @@ def client_fn(context: Context) -> Client:
     num_partitions = context.node_config["num-partitions"]
     print(f"Client {partition_id} / {num_partitions}")
     print("client calling")
-    net = load_initial_model(custom_config)
+    net = get_model(custom_config["MODEL"])
     print("client loading model")
 
     forget_set_config = {i:0.0 for i in range(int(custom_config["NUM_CLASSES"]))}

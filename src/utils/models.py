@@ -447,5 +447,9 @@ def nf_wide_resnet101_2(alpha: float = 0.2, beta: float = 1.0, activation: str =
 
 import torch
 def get_model(model_name: str = "resnet18"):
-    if model_name == "resenet18":
+    if model_name == "resnet18":
         return torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=False)
+    elif model_name == "nf_resnet18":
+        return nf_resnet18()
+    elif model_name == "nf_resnet34":
+        return nf_resnet34()

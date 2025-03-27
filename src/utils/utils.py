@@ -28,21 +28,19 @@ def load_custom_config():
             **dotenv_values("./envs/.env"),
             **dotenv_values("./envs/.env.training"),
             }
-    print(custom_config)
     custom_config["FORGET_CLASS"] = literal_eval(custom_config["FORGET_CLASS"])
     return custom_config
 
 
 def setup():
     custom_config = load_custom_config()
-    saving_directory = f"./checkpoints/{custom_config["CONFIG_ID"]}/{custom_config['MODEL_NAME']}/\
-    /{custom_config["DATASET"]}/{custom_config['CONFIG_NUMBER']}_{custom_config['SEED']}"
+    saving_directory = f"./checkpoints/{custom_config["CONFIG_ID"]}/{custom_config['MODEL']}/{custom_config["DATASET"]}/{custom_config['CONFIG_NUMBER']}_{custom_config['SEED']}"
     os.makedirs(saving_directory, exist_ok=True)
     custom_config["SAVING_DIR"] = saving_directory
-    with open(f"{custom_config['SAVING_DIR']}/custom_config.json") as f:
+    with open(f"{custom_config['SAVING_DIR']}/custom_config.json", "w") as f:
         f.write(json.dumps(custom_config))
 
-    custom_config["LOADED_MODEL"] = load_initial_model(custom_config['MODEL_NAME'], custom_config["RESUME"])
+    custom_config["LOADED_MODEL"] = load_initial_model(custom_config['MODEL'], custom_config["RESUME"])
     # TODO LOADING forget_index for the future, retrain_index, valindex, testindex
     return custom_config
 
@@ -50,6 +48,7 @@ def setup():
 def load_initial_model(model_name, path):
     # Configure logging
     model = get_model(model_name)
+    print("model initiated")
 
     if len(path) > 0 and path != "None" and path != None:
         resume_path = path
@@ -96,6 +95,9 @@ def save_model(model, custom_config, round=None, is_best=False):
     """
     # Get save directory from config, or use default
     save_dir = custom_config["SAVING_DIR"]
+    save_dir = os.path.join(custom_config["SAVING_DIR"], f"models_chkpts")
+    os.makedirs(save_dir, exist_ok=True)
+     
 
     # Determine filename
     if is_best:

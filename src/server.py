@@ -58,6 +58,8 @@ class FedCustom(FedAvg):
         self.initial_parameters = initial_parameters
         self.starting_phase = starting_phase
         self.current_phase = self.starting_phase
+        self.best_acc = 0
+        self.round_model = None
 
 
 
@@ -88,12 +90,14 @@ class FedCustom(FedAvg):
 
         # Create custom configs
         n_clients = len(clients)
-        standard_config = {"lr": custom_config["LR"], "Phase": self.current_phase,
+        if server_round % 25 == 0 and server_round > 24:
+            self.lr *= custom_config["LR_DECAY_RATE"]
+
+        standard_config = {"lr": self.lr, "Phase": self.current_phase,
                            "local_epochs": int(custom_config.get("LOCAL_EPOCHS"))}
         fit_configurations = []
         for idx, client in enumerate(clients):
             # TODO choose the index of client to forget.
-            print(idx)
             fit_configurations.append((client, FitIns(parameters, standard_config)))
         return fit_configurations
 
@@ -123,6 +127,7 @@ class FedCustom(FedAvg):
         ]
         parameters_aggregated = ndarrays_to_parameters(aggregate(weights_results))
         self.save_server_model(parameters_aggregated, server_round)
+        self.round_model = parameters_aggregated
 
         metrics_aggregated = {}
         self.current_phase = self.phase_schedule(self.current_phase)
@@ -163,12 +168,8 @@ class FedCustom(FedAvg):
         print(f"Aggregating aggregate_evaluate updates from {len(results)} clients, {len(failures)} failures")
         print(failures)
 
-        # TODO STORE BEST
-        
-
-
-
         if not results:
+            print("Aggregating aggregate_evaluate No results")
             return None, {}
 
         loss_aggregated = weighted_loss_avg(
@@ -177,7 +178,19 @@ class FedCustom(FedAvg):
                 for _, evaluate_res in results
             ]
         )
-        metrics_aggregated = {}
+        acc_aggregated =         loss_aggregated = weighted_loss_avg(
+            [
+                (evaluate_res.num_examples, float(evaluate_res.metrics["accuracy"]))
+                for _, evaluate_res in results
+            ]
+        )
+        print(f"round {server_round} ACC is = ", acc_aggregated)
+        if acc_aggregated > self.best_acc:
+            self.best_acc = acc_aggregated
+            print("Current best ACC is = ", acc_aggregated)
+            self.save_server_model(self.round_model, server_round, True)
+
+        metrics_aggregated = {"acc": acc_aggregated}
         return loss_aggregated, metrics_aggregated
 
     def evaluate(
@@ -198,12 +211,19 @@ class FedCustom(FedAvg):
         num_clients = int(num_available_clients * self.fraction_evaluate)
         return max(num_clients, self.min_evaluate_clients), self.min_available_clients
 
-    def save_server_model(self, params, server_round):
-        model = custom_config["LOADED_MODEL"]
-        params_dict = zip(model.state_dict().keys(), [torch.tensor(v) for v in params.tensors])
+    def save_server_model(self, params, server_round, is_best=False):
+        model = get_model(custom_config["MODEL"])
+        if params is not None:
+            print(f"Saving round {server_round} aggregated_parameters...")
+
+            # Convert `Parameters` to `list[np.ndarray]`
+            params: list[np.ndarray] = fl.common.parameters_to_ndarrays(
+                params
+            )
+        params_dict = zip(model.state_dict().keys(), [torch.tensor(v) for v in params])
         state_dict = OrderedDict({k: v for k, v in params_dict})
         model.load_state_dict(state_dict, strict=True)
-        save_model(model, custom_config, server_round)
+        save_model(model, custom_config, server_round, is_best=is_best)
 
 
 def get_parameters(net) -> List[np.ndarray]:
@@ -212,6 +232,7 @@ def get_parameters(net) -> List[np.ndarray]:
 def server_fn(context: Context):
     global custom_config
     custom_config = setup()
+    print(custom_config)
     os.environ['CUDA_LAUNCH_BLOCKING']="1"
     os.environ['TORCH_USE_CUDA_DSA'] = "1"
     # Read from config
@@ -221,6 +242,7 @@ def server_fn(context: Context):
 
     ndarrays = get_parameters(custom_config["LOADED_MODEL"])
     parameters = ndarrays_to_parameters(ndarrays)
+    
 
 
     strategy = FedCustom(
@@ -232,6 +254,7 @@ def server_fn(context: Context):
         min_available_clients=min_clients,
         initial_parameters=parameters,
     )
+    strategy.lr = custom_config["LR"]
     config = ServerConfig(num_rounds=num_rounds)
     print("server configured")
 

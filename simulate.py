@@ -16,14 +16,12 @@ from src.utils.utils import load_custom_config, get_gpu
 from src.dataloaders.client_dataloader import load_datasets_with_forgetting
 # Load configuration
 custom_config = load_custom_config()
-print(custom_config)
-
 server_app = ServerApp(server_fn=server_fn)
 
 run_simulation(
     server_app=server_app,
     client_app=client_app,
-    num_supernodes=custom_config["NUM_SUPERNODES"],  # equivalent to setting `num-supernodes` in the pyproject.toml
-    backend_config={"client_resources": {"num_cpus": custom_config["CLIENT_RESOURCES_NUM_CPUS"],
-                    "num_gpus": custom_config["CLIENT_RESOURCES_NUM_GPUS"]}}
+    num_supernodes=int(custom_config["NUM_SUPERNODES"]),  # equivalent to setting `num-supernodes` in the pyproject.toml
+    backend_config={"client_resources": {"num_cpus": float(custom_config["CLIENT_RESOURCES_NUM_CPUS"]),
+                    "num_gpus": float(custom_config["CLIENT_RESOURCES_NUM_GPUS"])}}
 )

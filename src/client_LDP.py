@@ -261,7 +261,7 @@ class FlowerClient(fl.client.NumPyClient):
     def fit(self, parameters, config):
         current_phase = config.get("Phase", "LEARN")
         local_epochs = config.get("local_epochs", 1)
-        LDP = config.get("LDP", False)
+        LDP = config.get("LDP", True)
 
         self.set_parameters(parameters)
 

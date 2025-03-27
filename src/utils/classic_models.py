@@ -210,7 +210,7 @@ class AllCNN(nn.Module):
 
 
 class SmallAllCNN(nn.Module):
-    def __init__(self, filters_percentage=1., n_channels=3, num_classes=10, dropout=False, batch_norm=True):
+    def __init__(self, filters_percentage=0.4, n_channels=3, num_classes=10, dropout=False, batch_norm=True):
         super(SmallAllCNN, self).__init__()
         n_filter1 = int(96 * filters_percentage)
         n_filter2 = int(192 * filters_percentage)
@@ -374,7 +374,7 @@ class ResNet18(nn.Module):
 
 
 class ResNet18_small(nn.Module):
-    def __init__(self, filters_percentage=0.5, n_channels=3, num_classes=10, block=_ResBlock, num_blocks=[2, 2, 2],
+    def __init__(self, filters_percentage=0.4, n_channels=3, num_classes=10, block=_ResBlock, num_blocks=[2, 2, 2],
                  n_classes=10):
         super(ResNet18_small, self).__init__()
         self.in_planes = 64

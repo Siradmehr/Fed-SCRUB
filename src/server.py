@@ -37,7 +37,7 @@ from flwr.common import (
 from flwr.server.client_manager import ClientManager
 from flwr.server.client_proxy import ClientProxy
 from flwr.server.strategy.aggregate import aggregate, weighted_loss_avg
-
+import time
 
 class FedCustom(FedAvg):
     def __init__(
@@ -140,6 +140,7 @@ class FedCustom(FedAvg):
         loss, acc = self.aggr_metrices(results)
         self.round_log[0] = loss
         self.round_log[1] = acc
+        time.sleep(1)
         return parameters_aggregated, metrics_aggregated
 
 

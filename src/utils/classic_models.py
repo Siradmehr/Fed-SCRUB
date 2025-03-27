@@ -405,6 +405,39 @@ class ResNet18_small(nn.Module):
         return out
 
 
+
+class ResNet18_small_test(nn.Module):
+    def __init__(self, filters_percentage=0.05, n_channels=3, num_classes=10, block=_ResBlock, num_blocks=[2, 2, 2],
+                 n_classes=10):
+        super(ResNet18_small_test, self).__init__()
+        self.in_planes = 64
+
+        self.conv1 = conv3x3(n_channels, 64)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.layer1 = self._make_layer(block, int(64 * filters_percentage), num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, int(128 * filters_percentage), num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, int(256 * filters_percentage), num_blocks[2], stride=2)
+        self.linear = nn.Linear(int(256 * filters_percentage) * block.expansion, num_classes)
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride))
+            self.in_planes = planes * block.expansion
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = F.avg_pool2d(out, 8)
+        out = out.view(out.size(0), -1)
+        out = self.linear(out)
+        return out
+
+
 def conv3x3(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride, padding=1, bias=True)
 
@@ -725,3 +758,5 @@ def get_classic_model(name):
         return SmallAllCNN()
     elif name == "ResNet18_small":
         return ResNet18_small()
+    elif name == "ResNet18_small_test":
+        return ResNet18_small_test()

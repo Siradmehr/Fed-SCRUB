@@ -117,12 +117,12 @@ class BasicBlock(nn.Module):
         return out
 
 class FLNet(nn.Module):
-    def __init__(self):
+    def __init__(self, num_class : int = 10):
         super(FLNet, self).__init__()
         self.conv1 = nn.Conv2d(1, 32, 5, padding=2)
         self.conv2 = nn.Conv2d(32, 64, 5, padding=2)
         self.fc1 = nn.Linear(64*7*7, 512)
-        self.fc2 = nn.Linear(512, 10)
+        self.fc2 = nn.Linear(512, num_class)
 
     def forward(self, x):
         x = F.max_pool2d(F.relu(self.conv1(x)), 2)
@@ -467,3 +467,5 @@ def get_model(model_name: str = "resnet18"):
         return nf_resnet18()
     elif model_name == "nf_resnet34":
         return nf_resnet34()
+    elif model_name == "FLNet":
+        return FLNet()

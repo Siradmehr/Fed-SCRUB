@@ -125,8 +125,8 @@ class FedCustom(FedAvg):
         print(failures)
         
         weights_results = [
-            (parameters_to_ndarrays(fit_res.parameters), fit_res.num_examples)
-            for _, fit_res in results
+            (parameters_to_ndarrays(fit_res.parameters), fit_res.num_examples) 
+            for _, fit_res in results if fit_res.num_examples > 0
         ]
         parameters_aggregated = ndarrays_to_parameters(aggregate(weights_results))
 
@@ -171,13 +171,13 @@ class FedCustom(FedAvg):
         loss_aggregated = weighted_loss_avg(
             [
                 (evaluate_res.num_examples, float(evaluate_res.metrics["train_loss"]))
-                for _, evaluate_res in results
+                for _, evaluate_res in results if evaluate_res.num_examples > 0
             ]
         )
         acc_aggregated = weighted_loss_avg(
             [
                 (evaluate_res.num_examples, float(evaluate_res.metrics["train_accuracy"]))
-                for _, evaluate_res in results
+                for _, evaluate_res in results if evaluate_res.num_examples > 0
             ]
         )
         return loss_aggregated, acc_aggregated

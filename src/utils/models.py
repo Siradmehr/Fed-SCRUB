@@ -116,21 +116,8 @@ class BasicBlock(nn.Module):
 
         return out
 
-class FLNet(nn.Module):
-    def __init__(self, num_class : int = 10):
-        super(FLNet, self).__init__()
-        self.conv1 = nn.Conv2d(3, 32, 5, padding=2)
-        self.conv2 = nn.Conv2d(32, 64, 5, padding=2)
-        self.fc1 = nn.Linear(64*7*7, 512)
-        self.fc2 = nn.Linear(512, num_class)
 
-    def forward(self, x):
-        x = F.max_pool2d(F.relu(self.conv1(x)), 2)
-        x = F.max_pool2d(F.relu(self.conv2(x)), 2)
-        x = x.view(-1, x.shape[1]*x.shape[2]*x.shape[3])
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
-        return x
+
 class Bottleneck(nn.Module):
     # Bottleneck in torchvision places the stride for downsampling at 3x3 convolution(self.conv2)
     # while original implementation places the stride at the first 1x1 convolution(self.conv1)
@@ -458,6 +445,21 @@ def nf_wide_resnet101_2(alpha: float = 0.2, beta: float = 1.0, activation: str =
     return _nf_resnet('wide_nf_resnet101_2', Bottleneck, [3, 4, 23, 3],
                       alpha=alpha, beta=beta, activation=activation, base_conv=base_conv, **kwargs)
 
+class FLNet(nn.Module):
+    def __init__(self, num_class : int = 10):
+        super(FLNet, self).__init__()
+        self.conv1 = nn.Conv2d(3, 32, 5, padding=2)
+        self.conv2 = nn.Conv2d(32, 64, 5, padding=2)
+        self.fc1 = nn.Linear(64*7*7, 512)
+        self.fc2 = nn.Linear(512, num_class)
+
+    def forward(self, x):
+        x = F.max_pool2d(F.relu(self.conv1(x)), 2)
+        x = F.max_pool2d(F.relu(self.conv2(x)), 2)
+        x = x.view(-1, x.shape[1]*x.shape[2]*x.shape[3])
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x
 
 import torch
 def get_model(model_name: str = "resnet18"):

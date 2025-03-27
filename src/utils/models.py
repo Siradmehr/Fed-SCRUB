@@ -119,7 +119,7 @@ class BasicBlock(nn.Module):
 class FLNet(nn.Module):
     def __init__(self, num_class : int = 10):
         super(FLNet, self).__init__()
-        self.conv1 = nn.Conv2d(1, 32, 5, padding=2)
+        self.conv1 = nn.Conv2d(3, 32, 5, padding=2)
         self.conv2 = nn.Conv2d(32, 64, 5, padding=2)
         self.fc1 = nn.Linear(64*7*7, 512)
         self.fc2 = nn.Linear(512, num_class)

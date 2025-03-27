@@ -20,6 +20,7 @@ from collections import OrderedDict
 from .utils.utils import save_model
 from .utils.models import get_model
 from flwr.common import ndarrays_to_parameters, NDArrays, Scalar, Context
+import pandas as pd
 
 from typing import Union
 
@@ -60,6 +61,8 @@ class FedCustom(FedAvg):
         self.current_phase = self.starting_phase
         self.best_acc = 0
         self.round_model = None
+        self.round_log = [0,0,0,0,0,0]
+        self.data_logs = pd.DataFrame(columns=["TRAINING_LOSS", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC"])
 
 
 
@@ -89,9 +92,9 @@ class FedCustom(FedAvg):
         print(f"{len(clients)} clients selected for training")
 
         # Create custom configs
-        n_clients = len(clients)
-        if server_round % 25 == 0 and server_round > 24:
-            self.lr *= custom_config["LR_DECAY_RATE"]
+        if server_round % 50 == 0 and server_round > 40 and self.lr > 0.0001:
+            self.lr *= float(custom_config["LR_DECAY_RATE"])
+            print("UPDATING LEARNING RATE TO", self.lr)
 
         standard_config = {"lr": self.lr, "Phase": self.current_phase,
                            "local_epochs": int(custom_config.get("LOCAL_EPOCHS"))}
@@ -126,11 +129,17 @@ class FedCustom(FedAvg):
             for _, fit_res in results
         ]
         parameters_aggregated = ndarrays_to_parameters(aggregate(weights_results))
+
+        self.aggr_metrices(results)
         self.save_server_model(parameters_aggregated, server_round)
         self.round_model = parameters_aggregated
 
         metrics_aggregated = {}
         self.current_phase = self.phase_schedule(self.current_phase)
+
+        loss, acc = self.aggr_metrices(results)
+        self.round_log[0] = loss
+        self.round_log[1] = acc
         return parameters_aggregated, metrics_aggregated
 
 
@@ -156,6 +165,23 @@ class FedCustom(FedAvg):
 
         # Return client/config pairs
         return [(client, evaluate_ins) for client in clients]
+    
+
+    def aggr_metrices(self, results):
+        loss_aggregated = weighted_loss_avg(
+            [
+                (evaluate_res.num_examples, float(evaluate_res.metrics["train_loss"]))
+                for _, evaluate_res in results
+            ]
+        )
+        acc_aggregated = weighted_loss_avg(
+            [
+                (evaluate_res.num_examples, float(evaluate_res.metrics["train_accuracy"]))
+                for _, evaluate_res in results
+            ]
+        )
+        return loss_aggregated, acc_aggregated
+
 
     def aggregate_evaluate(
         self,
@@ -178,13 +204,27 @@ class FedCustom(FedAvg):
                 for _, evaluate_res in results
             ]
         )
-        acc_aggregated =         loss_aggregated = weighted_loss_avg(
+        acc_aggregated = weighted_loss_avg(
             [
                 (evaluate_res.num_examples, float(evaluate_res.metrics["accuracy"]))
                 for _, evaluate_res in results
             ]
         )
         print(f"round {server_round} ACC is = ", acc_aggregated)
+        print(f"round {server_round} loss is = ", loss_aggregated)
+        self.round_log[4] = loss_aggregated
+        self.round_log[5] = acc_aggregated
+        new_log = {"TRAINING_LOSS": self.round_log[0], "TRAINING_ACC": self.round_log[1]
+                   , "FORGET_LOSS": self.round_log[2], "FORGET_ACC": self.round_log[3], "VAL_LOSS": self.round_log[4]
+                   , "VAL_ACC":self.round_log[5]}
+        new_log = {k:[new_log[k]] for k in new_log}
+        new_log = pd.DataFrame(new_log)
+        
+        # Append the new log to the existing data_logs
+        self.data_logs = pd.concat([self.data_logs, new_log], ignore_index=True)
+
+        self.data_logs.to_csv(os.path.join(custom_config["SAVING_DIR"], "logs.csv"))
+
         if acc_aggregated > self.best_acc:
             self.best_acc = acc_aggregated
             print("Current best ACC is = ", acc_aggregated)
@@ -254,7 +294,7 @@ def server_fn(context: Context):
         min_available_clients=min_clients,
         initial_parameters=parameters,
     )
-    strategy.lr = custom_config["LR"]
+    strategy.lr = float(custom_config["LR"])
     config = ServerConfig(num_rounds=num_rounds)
     print("server configured")
 

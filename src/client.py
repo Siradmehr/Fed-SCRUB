@@ -69,7 +69,7 @@ class FlowerClient(fl.client.NumPyClient):
 
 
 
-    def model_train(self, trainloader, valloader, forgetloader, epochs: int, phase: str) -> Dict:
+    def model_train(self, trainloader, valloader, forgetloader, epochs: int, phase: str, lr: float) -> Dict:
 
         print("training started")
 
@@ -83,16 +83,16 @@ class FlowerClient(fl.client.NumPyClient):
         criterion_div = get_losses(loss_type_div, num_classes, T)
         criterion_div_min = get_losses(loss_type_kd, num_classes, T)  # Used for MAXIMIZE phase
 
-        optimizer = torch.optim.SGD(self.net.parameters(), lr=0.01, momentum=0.9)
+        optimizer = torch.optim.SGD(self.net.parameters(), lr=lr, momentum=0.9)
         self.net.train()
         total_loss = 0.0
         total_correct = 0
         total_samples = 0
 
         # Hyperparameters
-        alpha = float(self.custom_config.get("ALPHA", 0.5))
-        beta = float(self.custom_config.get("BETA", 0.0))     # Optional for KD loss
-        gamma = float(self.custom_config.get("GAMMA", 1.0))
+        alpha = float(self.custom_config.get("ALPHA"))
+        beta = float(self.custom_config.get("BETA"))     # Optional for KD loss
+        gamma = float(self.custom_config.get("GAMMA"))
 
         if phase == "LEARN":
             print("number of epochs in this", epochs)
@@ -203,10 +203,11 @@ class FlowerClient(fl.client.NumPyClient):
         print(f"[Client {self.partition_id}] fit, config: {config}")
         current_phase = config.get("Phase", "LEARN")  # Default to "LEARN"
         local_epochs = config.get("local_epochs")  # Default to 1 epoch
+        lr = config.get("lr")
         
         self.set_parameters(parameters)
         
-        metrics_dict = self.model_train(self.train_loader, self.valloader, self.forgetloader, local_epochs, phase=current_phase)    
+        metrics_dict = self.model_train(self.train_loader, self.valloader, self.forgetloader, local_epochs, phase=current_phase, lr=lr)    
         # Include data indices in the metrics returned to server
         metrics = {
         "train_loss": metrics_dict["loss"],

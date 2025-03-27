@@ -469,3 +469,5 @@ def get_model(model_name: str = "resnet18"):
         return nf_resnet34()
     elif model_name == "FLNet":
         return FLNet()
+    elif model_name == "squeezenet1_0":
+        return torch.hub.load('pytorch/vision:v0.10.0', 'squeezenet1_0', pretrained=False)

@@ -5,7 +5,7 @@ from typing import Type, Any, Callable, Union, List, Optional
 from nfnets import WSConv2d, ScaledStdConv2d
 from functools import partial
 import torch.nn.functional as F
-
+from .classic_models import get_classic_model
 __all__ = ['nf_ResNet', 'nf_resnet18', 'nf_resnet34', 'nf_resnet50', 'nf_resnet101',
            'nf_resnet152', 'nf_resnext50_32x4d', 'nf_resnext101_32x8d',
            'nf_wide_resnet50_2', 'nf_wide_resnet101_2']
@@ -471,3 +471,9 @@ def get_model(model_name: str = "resnet18"):
         return FLNet()
     elif model_name == "squeezenet1_0":
         return torch.hub.load('pytorch/vision:v0.10.0', 'squeezenet1_0', pretrained=False)
+    elif model_name == "AllCNN":
+        return get_classic_model("AllCNN")
+    elif model_name == "SmallAllCNN":
+        return get_classic_model("SmallAllCNN")
+    elif model_name == "ResNet18_small":
+        return get_classic_model("ResNet18_small")

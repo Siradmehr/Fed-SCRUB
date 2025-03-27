@@ -18,6 +18,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import accuracy_score
 
 from .dataloaders.client_dataloader import load_datasets, load_datasets_with_forgetting
 
@@ -85,7 +88,40 @@ class FlowerClient(fl.client.NumPyClient):
                 if param.grad is not None:
                     param.grad = noisy_grads[grad_idx]
                     grad_idx += 1
+    def get_loss_dataset(self, model, dataloader, label):
+        self.net.eval()
+        loss_values = []
+        labels = []
+        criterion = nn.CrossEntropyLoss(reduction='none')
+        with torch.no_grad():
+            for batch in dataloader:
+                images = batch["img"].to(DEVICE)
+                targets = batch["label"].to(DEVICE)
+                outputs = model(images)
+                loss = criterion(outputs, targets)
+                clipped_loss = torch.clamp(loss, min=-400, max=400)
+                loss_values.extend(clipped_loss.cpu().numpy())
+                labels.extend([label] * len(targets))
+        return np.array(loss_values).reshape(-1, 1), np.array(labels)
 
+    def compute_mia_score(self, model):
+        X_f, y_f = self.get_loss_dataset(model, self.forgetloader, label=1)
+        X_t, y_t = self.get_loss_dataset(model, self.valloader, label=0)
+
+        X = np.vstack([X_f, X_t])
+        y = np.concatenate([y_f, y_t])
+
+        skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+        accs = []
+
+        for train_idx, test_idx in skf.split(X, y):
+            clf = LogisticRegression()
+            clf.fit(X[train_idx], y[train_idx])
+            preds = clf.predict(X[test_idx])
+            acc = accuracy_score(y[test_idx], preds)
+            accs.append(acc)
+
+        return np.mean(accs)
     def model_train(self, trainloader, valloader, forgetloader, epochs: int, phase: str, LDP: bool) -> Dict:
 
         print("training started")
@@ -219,7 +255,8 @@ class FlowerClient(fl.client.NumPyClient):
                 total_samples += images.size(0)
         avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
         accuracy = total_correct / total_samples if total_samples > 0 else 0.0
-        return avg_loss, accuracy
+        mia_score = self.compute_mia_score(self.net)
+        return avg_loss, accuracy, mia_score
 
     def fit(self, parameters, config):
         current_phase = config.get("Phase", "LEARN")

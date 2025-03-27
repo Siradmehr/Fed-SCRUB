@@ -2,7 +2,7 @@ import os
 
 os.environ['CUDA_LAUNCH_BLOCKING']="1"
 os.environ['TORCH_USE_CUDA_DSA'] = "1"
-
+from torch import nn
 import flwr as fl
 import numpy as np
 from collections import OrderedDict
@@ -105,6 +105,7 @@ class FlowerClient(fl.client.NumPyClient):
                     outputs = self.net(images)
                     loss = criterion_cls(outputs, labels)
                     loss.backward()
+                    nn.utils.clip_grad_value_(self.net.parameters(), clip_value=0.5)
                     optimizer.step()
                     # if idxs % 10 == 0:
                     #     print(idxs)

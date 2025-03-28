@@ -93,7 +93,7 @@ def load_datasets_with_forgetting(partition_id: int, num_partitions: int, seed: 
 
     # Create data loaders
     if len(retrainset) > 0:
-        retrainloader = DataLoader(retrainset, batch_size= 256, shuffle=True)
+        retrainloader = DataLoader(retrainset, batch_size= 512, shuffle=True)
     else:
         retrainloader = None
 

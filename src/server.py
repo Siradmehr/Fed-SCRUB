@@ -65,6 +65,7 @@ class FedCustom(FedAvg):
         self.round_model = None
         self.round_log = [0,0,0,0,0,0]
         self.data_logs = pd.DataFrame(columns=["TRAINING_LOSS", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC"])
+        self.max_logs = pd.DataFrame(columns=["MAX_LOSS", "MAX_ACC", "MIA"])
 
 
 
@@ -94,7 +95,8 @@ class FedCustom(FedAvg):
         print(f"{len(clients)} clients selected for training")
 
         # Create custom configs
-        if server_round % 50 == 0 and server_round > 5 and self.lr > 0.0001:
+
+        if (server_round in custom_config["LR_ROUND"]) and self.lr > 0.0001:
             self.lr *= float(custom_config["LR_DECAY_RATE"])
             print("UPDATING LEARNING RATE TO", self.lr)
 
@@ -118,12 +120,16 @@ class FedCustom(FedAvg):
         return fit_configurations
 
 
-    def phase_schedule(self, phase: str) -> str:
+    def phase_schedule(self, phase: str, round: int) -> str:
         switcher = {
             "LEARN": "LEARN",
             "MAX": "MIN",
             "MIN": "MAX"
         }
+
+        if custom_config["LAST_MAX_STEPS"] <= round:
+            if phase == "MIN":
+                return "MIN"
         return switcher.get(phase, "LEARN")
 
     def aggregate_fit(
@@ -133,14 +139,20 @@ class FedCustom(FedAvg):
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]],
     ) -> Tuple[Optional[Parameters], Dict[str, Scalar]]:
         """Aggregate fit results using weighted average."""
-        print(f"Aggregating aggregate_fit round {server_round}  self.current_phase={self.current_phase}")
         print(f"Aggregating aggregate_fit updates from {len(results)} clients, {len(failures)} failures")
         print(failures)
-        
+
+        # par_list = []
+        # for _, fit_res in results:
+        #     if fit_res.num_examples > 0:
+        #         par_list.append((parameters_to_ndarrays(fit_res.parameters), fit_res.num_examples) )
+
         weights_results = [
             (parameters_to_ndarrays(fit_res.parameters), fit_res.num_examples) 
             for _, fit_res in results if fit_res.num_examples > 0
         ]
+        print(f"Aggregating aggregate_fit round {server_round}  self.current_phase={self.current_phase} len(weights_results)={len(weights_results)}")
+        print("\n",flush=True)
         parameters_aggregated = ndarrays_to_parameters(aggregate(weights_results))
 
         self.aggr_metrices(results)
@@ -149,16 +161,44 @@ class FedCustom(FedAvg):
 
         metrics_aggregated = {}
         loss, acc = self.aggr_metrices(results)
-        self.round_log[0] = loss
-        self.round_log[1] = acc
+        if self.current_phase == "MAX":
+            self.round_log[2] = loss
+            self.round_log[3] = acc
+        else:
+            self.round_log[2] = loss
+            self.round_log[3] = acc
+
+        maxloss_aggregated = weighted_loss_avg(
+            [
+                (int(evaluate_res.metrics["max_size"]), float(evaluate_res.metrics["max_loss"]))
+                for _, evaluate_res in results if int(evaluate_res.metrics["max_size"]) > 0
+            ]
+        )
+        maxacc_aggregated = weighted_loss_avg(
+            [
+                (int(evaluate_res.metrics["max_size"]), float(evaluate_res.metrics["max_acc"]))
+                for _, evaluate_res in results if int(evaluate_res.metrics["max_size"]) > 0
+            ]
+        )
+        metrics_aggregated["maxacc"] = maxacc_aggregated
+        metrics_aggregated["maxloss"] = maxloss_aggregated
+
+        new_log = {"MAX_LOSS": maxloss_aggregated, "MAX_ACC": maxacc_aggregated, "MIA": "0"}
+
+        new_log = {k:[new_log[k]] for k in new_log}
+        new_log = pd.DataFrame(new_log)
+
+        self.max_logs = pd.concat(
+            [self.max_logs, new_log],
+            ignore_index=True)
+
+        self.max_logs.to_csv(os.path.join(custom_config["SAVING_DIR"], "max_logs.csv"))
+
         time.sleep(1)
         return parameters_aggregated, metrics_aggregated
 
-
-
-
     def configure_evaluate(
-        self, server_round: int, parameters: Parameters, client_manager: ClientManager
+            self, server_round: int, parameters: Parameters, client_manager: ClientManager
     ) -> List[Tuple[ClientProxy, EvaluateIns]]:
         """Configure the next round of evaluation."""
         if self.fraction_evaluate == 0.0:
@@ -193,6 +233,8 @@ class FedCustom(FedAvg):
                 for _, evaluate_res in results if evaluate_res.num_examples > 0
             ]
         )
+
+
 
         return loss_aggregated, acc_aggregated
 
@@ -246,7 +288,12 @@ class FedCustom(FedAvg):
             self.save_server_model(self.round_model, server_round, True)
 
         metrics_aggregated = {"acc": acc_aggregated}
-        self.current_phase = self.phase_schedule(self.current_phase)
+
+
+
+
+
+        self.current_phase = self.phase_schedule(self.current_phase, server_round)
         return loss_aggregated, metrics_aggregated
 
     def evaluate(

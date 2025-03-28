@@ -39,6 +39,8 @@ def load_custom_config(path: str = "envs/unlearning"):
         custom_config[key] = int(custom_config[key])
     if len(custom_config["CLIENT_ID_TO_FORGET"]) > 0:
         custom_config["CLIENT_ID_TO_FORGET"] = [int(i) for i in str(custom_config["CLIENT_ID_TO_FORGET"]).split(",")]
+    if len(custom_config["LR_ROUND"]) > 0:
+        custom_config["LR_ROUND"] = [int(i) for i in str(custom_config["LR_ROUND"]).split(",")]
 
     return custom_config
 

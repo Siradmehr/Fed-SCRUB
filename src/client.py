@@ -301,7 +301,18 @@ class FlowerClient(fl.client.NumPyClient):
         self.set_parameters(parameters)
         loss, accuracy = self.model_eval()
 
-        return loss, len(self.valloader.dataset), {"accuracy": accuracy}
+        max_loss, max_acc, max_size = self.model_eval_with_MIA()
+        metrics = {
+            "accuracy": accuracy,
+            "train_loss": loss,
+            "train_accuracy": accuracy,
+            "max_loss": max_loss,
+            "max_acc": max_acc,
+            "max_size": max_size,
+        }
+        print(metrics)
+
+        return loss, len(self.valloader.dataset), metrics
 
 def client_fn(context: Context) -> Client:
     os.environ['CUDA_LAUNCH_BLOCKING']="1"

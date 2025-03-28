@@ -92,7 +92,7 @@ class FedCustom(FedAvg):
         print(f"{len(clients)} clients selected for training")
 
         # Create custom configs
-        if server_round % 50 == 0 and server_round > 40 and self.lr > 0.0001:
+        if server_round % 10 == 0 and server_round > 5 and self.lr > 0.0001:
             self.lr *= float(custom_config["LR_DECAY_RATE"])
             print("UPDATING LEARNING RATE TO", self.lr)
 

@@ -479,3 +479,5 @@ def get_model(model_name: str = "resnet18"):
         return get_classic_model("SmallAllCNN")
     elif model_name == "ResNet18_small":
         return get_classic_model("ResNet18_small")
+    elif model_name == "ResNet18_small_test":
+        return get_classic_model("ResNet18_small_test")

@@ -15,7 +15,9 @@ client_app = ClientApp(client_fn=client_fn)
 from src.utils.utils import load_custom_config, get_gpu, setup
 from src.dataloaders.client_dataloader import load_datasets_with_forgetting
 # Load configuration
-custom_config = load_custom_config()
+import sys
+custom_config = load_custom_config(sys.argv[1])
+print("--------------------------------------------------------\n")
 server_app = ServerApp(server_fn=server_fn)
 
 run_simulation(

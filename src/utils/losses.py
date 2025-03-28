@@ -15,6 +15,17 @@ eps_4 = 1e-5
 eps_2 = 5e-3
 eps_3 = 5e-2
 
+class DistillKL(nn.Module):
+    """Distilling the Knowledge in a Neural Network"""
+    def __init__(self, T):
+        super(DistillKL, self).__init__()
+        self.T = T
+
+    def forward(self, y_s, y_t):
+        p_s = F.log_softmax(y_s/self.T, dim=1)
+        p_t = F.softmax(y_t/self.T, dim=1)
+        loss = F.kl_div(p_s, p_t, size_average=False) * (self.T**2) / y_s.shape[0]
+        return loss
 
 def torch_one_hot(arr, logits, nclass, delta=0):
     if len(arr.shape) == len(logits.shape) - 1:
@@ -78,7 +89,6 @@ class X2(torch.nn.Module):
 
 
 def get_losses(loss, nclasses, T):
-    return nn.CrossEntropyLoss()
     if loss == "CE":
         return nn.CrossEntropyLoss()
     elif loss == "KL":

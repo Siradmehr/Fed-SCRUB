@@ -10,19 +10,13 @@ import random
 # Load configuration
 from subprocess import call
 import sys
+
 def get_gpu():
-    print('__CUDNN VERSION:', torch.backends.cudnn.version())
-    print('__Number CUDA Devices:', torch.cuda.device_count())
     custom_config = load_custom_config()
     print(custom_config)
     device = torch.device(custom_config["DEVICE"] if torch.cuda.is_available() else "cpu")
     print(device)
     torch.cuda.set_device(device)
-    call(["nvidia-smi", "--format=csv", "--query-gpu=index,name,driver_version,memory.total,memory.used,memory.free"])
-    print('Active CUDA Device: GPU', torch.cuda.current_device())
-    print ('Available devices ', torch.cuda.device_count())
-    print ('Current cuda device ', torch.cuda.current_device())
-    
 def load_custom_config_from_files():
 
     custom_config = {
@@ -32,13 +26,17 @@ def load_custom_config_from_files():
     custom_config["FORGET_CLASS"] = literal_eval(custom_config["FORGET_CLASS"])
     return custom_config
 
-def load_custom_config():
-    path = sys.argv[1]
+INT_KEYS = ["RETRAIN_BATCH", "FORGET_BATCH", "VAL_BATCH", "TEST_BATCH", "NUM_CLASSES"
+            ,"LOCAL_EPOCHS", "MIN_EPOCHS", "MAX_EPOCHS", "LAST_MAX_STEPS",]
+def load_custom_config(path: str = "envs/unlearning"):
+    print("PATH", path)
     custom_config = {
             **dotenv_values(f"{path}/.env"),
             **dotenv_values(f"{path}/.env.training"),
             }
     custom_config["FORGET_CLASS"] = literal_eval(custom_config["FORGET_CLASS"])
+    for key in INT_KEYS:
+        custom_config[key] = int(custom_config[key])
     if len(custom_config["CLIENT_ID_TO_FORGET"]) > 0:
         custom_config["CLIENT_ID_TO_FORGET"] = [int(i) for i in str(custom_config["CLIENT_ID_TO_FORGET"]).split(",")]
 
@@ -51,8 +49,8 @@ def manual_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def setup():
-    custom_config = load_custom_config()
+def setup(path: str = "envs/unlearning"):
+    custom_config = load_custom_config(path)
     saving_directory = f"./checkpoints/{custom_config["CONFIG_ID"]}/{custom_config['MODEL']}/{custom_config["DATASET"]}/{custom_config['CONFIG_NUMBER']}_{custom_config['SEED']}"
     os.makedirs(saving_directory, exist_ok=True)
     custom_config["SAVING_DIR"] = saving_directory
@@ -75,7 +73,7 @@ def load_initial_model(model_name, path):
 
         try:
             if os.path.isfile(resume_path):
-                checkpoint = torch.load(resume_path, map_location=torch.device('auto'))
+                checkpoint = torch.load(resume_path, map_location=torch.device('cpu'))
 
                 if "state_dict" in checkpoint:
                     model.load_state_dict(checkpoint["state_dict"])

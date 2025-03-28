@@ -1,6 +1,29 @@
-def compute_mia_score(self, model):
-    X_f, y_f = self.get_loss_dataset(model, self.forgetloader, label=1)
-    X_t, y_t = self.get_loss_dataset(model, self.valloader, label=0)
+from torch import nn
+import torch
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import accuracy_score
+def get_loss_dataset(net, model, dataloader, label, device):
+    net.eval()
+    loss_values = []
+    labels = []
+    criterion = nn.CrossEntropyLoss(reduction='none')
+    with torch.no_grad():
+        for batch in dataloader:
+            images = batch["img"].to(device)
+            targets = batch["label"].to(device)
+            outputs = model(images)
+            loss = criterion(outputs, targets)
+            clipped_loss = torch.clamp(loss, min=-400, max=400)
+            loss_values.extend(clipped_loss.cpu().numpy())
+            labels.extend([label] * len(targets))
+    return np.array(loss_values).reshape(-1, 1), np.array(labels)
+
+
+def compute_mia_score(model, val, forget):
+    X_f, y_f = get_loss_dataset(model, forget, label=1)
+    X_t, y_t = get_loss_dataset(model, val, label=0)
 
     X = np.vstack([X_f, X_t])
     y = np.concatenate([y_f, y_t])

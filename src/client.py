@@ -18,7 +18,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
-
+from .utils.metrics import compute_mia_score
 from .dataloaders.client_dataloader import load_datasets, load_datasets_with_forgetting
 
 import flwr
@@ -69,6 +69,7 @@ class FlowerClient(fl.client.NumPyClient):
 
 
 
+
     def model_train(self, trainloader, forgetloader, config):
         phase = config.get("Phase")  # Default to "LEARN"
         epochs = config.get("local_epochs")  # Default to 1 epoch
@@ -96,8 +97,8 @@ class FlowerClient(fl.client.NumPyClient):
         beta = float(self.custom_config.get("BETA"))     # Optional for KD loss
         gamma = float(self.custom_config.get("GAMMA"))
 
-        if phase == "LEARN":
-            print("number of epochs in this", epochs)
+        if phase == "LEARN" and trainloader and len(trainloader) > 0:
+            print("number of epochs in LEARN", epochs,  len(trainloader))
             for eps in range(epochs):
                 for idxs, batch_data in enumerate(trainloader):
                     images = batch_data["img"]
@@ -123,10 +124,13 @@ class FlowerClient(fl.client.NumPyClient):
         if phase == "MAX" and config["UNLEARN_CON"] == "TRUE":
             if not hasattr(self, 'teacher_model'):
                 raise ValueError("Teacher model not found. Run LEARN phase first.")
+            MAX_epochs = config.get("max_epochs")
+            print("number of epochs in MAX", MAX_epochs,  len(forgetloader))
             teacher = self.teacher_model
             teacher.eval()
 
-            for _ in range(epochs):
+
+            for _ in range(MAX_epochs):
                 for idxs, batch_data in enumerate(forgetloader):
                     images = batch_data["img"]
                     labels = batch_data["label"]
@@ -156,34 +160,38 @@ class FlowerClient(fl.client.NumPyClient):
             teacher = self.teacher_model
             teacher.eval()
 
-            for _ in range(epochs):
-                for idxs, batch_data in enumerate(forgetloader):
-                    images = batch_data["img"]
-                    labels = batch_data["label"]
-                    images, labels = images.to(DEVICE), labels.to(DEVICE)
-                    optimizer.zero_grad()
-
-                    with torch.no_grad():
-                        teacher_outputs = teacher(images)
-                        teacher_probs = F.softmax(teacher_outputs, dim=1)
-
-                    student_outputs = self.net(images)
-
-                    loss_cls = criterion_cls(student_outputs, labels)
-                    loss_div = criterion_div(student_outputs, teacher_probs)
-
-                    loss = gamma * loss_cls + alpha * loss_div
-                    loss.backward()
-                    optimizer.step()
-
-                    with torch.no_grad():
-                        total_loss += loss.item() * images.size(0)
-                        preds = student_outputs.argmax(dim=1)
-                        total_correct += (preds == labels).sum().item()
-                        total_samples += images.size(0)
-            if config["UNLEARN_CON"] != "TRUE":
-                for _ in range(epochs):
+            MIN_epochs = config.get("min_epochs")
+            if trainloader and len(trainloader) > 0:
+                print("number of epochs in MIN train ", MIN_epochs, len(trainloader))
+                for _ in range(MIN_epochs):
                     for idxs, batch_data in enumerate(trainloader):
+                        images = batch_data["img"]
+                        labels = batch_data["label"]
+                        images, labels = images.to(DEVICE), labels.to(DEVICE)
+                        optimizer.zero_grad()
+
+                        with torch.no_grad():
+                            teacher_outputs = teacher(images)
+                            teacher_probs = F.softmax(teacher_outputs, dim=1)
+
+                        student_outputs = self.net(images)
+
+                        loss_cls = criterion_cls(student_outputs, labels)
+                        loss_div = criterion_div(student_outputs, teacher_probs)
+
+                        loss = gamma * loss_cls + alpha * loss_div
+                        loss.backward()
+                        optimizer.step()
+
+                        with torch.no_grad():
+                            total_loss += loss.item() * images.size(0)
+                            preds = student_outputs.argmax(dim=1)
+                            total_correct += (preds == labels).sum().item()
+                            total_samples += images.size(0)
+            if config["UNLEARN_CON"] != "TRUE" and forgetloader and len(forgetloader) > 0:
+                print("number of epochs in MIN forget ", MIN_epochs, len(forgetloader))
+                for _ in range(MIN_epochs):
+                    for idxs, batch_data in enumerate(forgetloader):
                         images = batch_data["img"]
                         labels = batch_data["label"]
                         images, labels = images.to(DEVICE), labels.to(DEVICE)
@@ -242,17 +250,48 @@ class FlowerClient(fl.client.NumPyClient):
         accuracy = total_correct / total_samples if total_samples > 0 else 0.0
         return avg_loss,accuracy
 
+    def model_eval_with_MIA(self) -> Dict:
+        """Evaluate the model on a given data loader."""
+        criterion = nn.CrossEntropyLoss()
+        self.net.eval()
+        total_loss = 0.0
+        total_correct = 0
+        total_samples = 0
+        with torch.no_grad():
+            for idxs, batch_data in enumerate(self.forgetloader):
+                images = batch_data["img"]
+                labels = batch_data["label"]
+                images, labels = images.to(DEVICE), labels.to(DEVICE)
+                outputs = self.net(images)
+                loss = criterion(outputs, labels)
+                total_loss += loss.item() * images.size(0)
+                preds = outputs.argmax(dim=1)
+                total_correct += (preds == labels).sum().item()
+                total_samples += images.size(0)
+        avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
+        accuracy = total_correct / total_samples if total_samples > 0 else 0.0
+        return avg_loss, accuracy, total_samples,
+
 
     def fit(self, parameters, config):
         print(f"[Client {self.partition_id}] fit, config: {config}")
         self.set_parameters(parameters)
+        if config["TEACHER"] == "INIT":
+            self.teacher_model = load_initial_model(custom_config['MODEL'], custom_config["RESUME"])
+            self.teacher_model.to(self.device)
         
         metrics_dict, size_of_set = self.model_train(self.train_loader, self.forgetloader, config)
+        max_loss,max_acc, max_size = self.model_eval_with_MIA()
+
         # Include data indices in the metrics returned to server
         metrics = {
         "train_loss": metrics_dict["loss"],
         "train_accuracy": metrics_dict["accuracy"],
+        "max_loss": max_loss,
+        "max_acc": max_acc,
+        "max_size": max_size,
         }
+        print(metrics)
         
         # Return updated model parameters and number of training examples
         return self.get_parameters(), size_of_set, metrics
@@ -261,6 +300,7 @@ class FlowerClient(fl.client.NumPyClient):
         """Evaluate the model on the data this client has."""
         self.set_parameters(parameters)
         loss, accuracy = self.model_eval()
+
         return loss, len(self.valloader.dataset), {"accuracy": accuracy}
 
 def client_fn(context: Context) -> Client:

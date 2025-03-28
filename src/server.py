@@ -14,7 +14,8 @@ from flwr.server.client_manager import SimpleClientManager
 from .utils.utils import load_custom_config, setup, manual_seed
 # Load configuration
 import os
-custom_config = load_custom_config()
+import sys
+custom_config = load_custom_config(sys.argv[1])
 import torch
 from collections import OrderedDict
 from .utils.utils import save_model
@@ -98,15 +99,22 @@ class FedCustom(FedAvg):
             print("UPDATING LEARNING RATE TO", self.lr)
 
         standard_config = {"lr": self.lr, "Phase": self.current_phase,
+                           "min_epochs" : int(custom_config.get("MIN_EPOCHS")),
+                           "max_epochs" : int(custom_config.get("MAX_EPOCHS")),
                            "local_epochs": int(custom_config.get("LOCAL_EPOCHS")),
                            "UNLEARN_CON": "FALSE", "TEACHER": custom_config["TEACHER"]}
         fit_configurations = []
         forget_clients = custom_config["CLIENT_ID_TO_FORGET"]
+        print(forget_clients)
         for idx, client in enumerate(clients):
+            client_config = standard_config.copy()
             # TODO choose the index of client to forget.
+            print(idx)
             if idx in forget_clients:
-                standard_config["UNLEARN_CON"] = "TRUE"
-            fit_configurations.append((client, FitIns(parameters, standard_config)))
+                print("index to contribute to unlearn", idx)
+                client_config["UNLEARN_CON"] = "TRUE"
+            print(client_config)
+            fit_configurations.append((client, FitIns(parameters, client_config)))
         return fit_configurations
 
 
@@ -125,7 +133,7 @@ class FedCustom(FedAvg):
         failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]],
     ) -> Tuple[Optional[Parameters], Dict[str, Scalar]]:
         """Aggregate fit results using weighted average."""
-
+        print(f"Aggregating aggregate_fit round {server_round}  self.current_phase={self.current_phase}")
         print(f"Aggregating aggregate_fit updates from {len(results)} clients, {len(failures)} failures")
         print(failures)
         
@@ -171,11 +179,13 @@ class FedCustom(FedAvg):
     
 
     def aggr_metrices(self, results):
+        loss_list = []
+        for _, evaluate_res in results:
+            if evaluate_res.num_examples > 0:
+                loss_list.append((evaluate_res.num_examples, float(evaluate_res.metrics["train_loss"])))
+
         loss_aggregated = weighted_loss_avg(
-            [
-                (evaluate_res.num_examples, float(evaluate_res.metrics["train_loss"]))
-                for _, evaluate_res in results if evaluate_res.num_examples > 0
-            ]
+            loss_list
         )
         acc_aggregated = weighted_loss_avg(
             [
@@ -214,6 +224,7 @@ class FedCustom(FedAvg):
                 for _, evaluate_res in results
             ]
         )
+        print(f"Aggregating aggregate_evaluate round {server_round}  self.current_phase={self.current_phase}")
         print(f"round {server_round} ACC is = ", acc_aggregated)
         print(f"round {server_round} loss is = ", loss_aggregated)
         self.round_log[4] = loss_aggregated
@@ -276,7 +287,7 @@ def get_parameters(net) -> List[np.ndarray]:
 
 def server_fn(context: Context):
     global custom_config
-    custom_config = setup()
+    custom_config = setup(sys.argv[1])
     manual_seed(int(custom_config["SEED"]))
     print(custom_config)
     os.environ['CUDA_LAUNCH_BLOCKING']="1"

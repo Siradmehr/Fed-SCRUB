@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 from dotenv import load_dotenv, dotenv_values
 from flwr.server.client_manager import SimpleClientManager
-from .utils.utils import load_custom_config, setup
+from .utils.utils import load_custom_config, setup, manual_seed
 # Load configuration
 import os
 custom_config = load_custom_config()
@@ -57,6 +57,7 @@ class FedCustom(FedAvg):
         self.min_evaluate_clients = min_evaluate_clients
         self.min_available_clients = min_available_clients
         self.initial_parameters = initial_parameters
+        self.main_teacher = initial_parameters
         self.starting_phase = starting_phase
         self.current_phase = self.starting_phase
         self.best_acc = 0
@@ -97,10 +98,14 @@ class FedCustom(FedAvg):
             print("UPDATING LEARNING RATE TO", self.lr)
 
         standard_config = {"lr": self.lr, "Phase": self.current_phase,
-                           "local_epochs": int(custom_config.get("LOCAL_EPOCHS"))}
+                           "local_epochs": int(custom_config.get("LOCAL_EPOCHS")),
+                           "UNLEARN_CON": "FALSE", "TEACHER": custom_config["TEACHER"]}
         fit_configurations = []
+        forget_clients = custom_config["CLIENT_ID_TO_FORGET"]
         for idx, client in enumerate(clients):
             # TODO choose the index of client to forget.
+            if idx in forget_clients:
+                standard_config["UNLEARN_CON"] = "TRUE"
             fit_configurations.append((client, FitIns(parameters, standard_config)))
         return fit_configurations
 
@@ -135,8 +140,6 @@ class FedCustom(FedAvg):
         self.round_model = parameters_aggregated
 
         metrics_aggregated = {}
-        self.current_phase = self.phase_schedule(self.current_phase)
-
         loss, acc = self.aggr_metrices(results)
         self.round_log[0] = loss
         self.round_log[1] = acc
@@ -163,7 +166,6 @@ class FedCustom(FedAvg):
         clients = client_manager.sample(
             num_clients=sample_size, min_num_clients=min_num_clients
         )
-
         # Return client/config pairs
         return [(client, evaluate_ins) for client in clients]
     
@@ -181,6 +183,7 @@ class FedCustom(FedAvg):
                 for _, evaluate_res in results if evaluate_res.num_examples > 0
             ]
         )
+
         return loss_aggregated, acc_aggregated
 
 
@@ -232,6 +235,7 @@ class FedCustom(FedAvg):
             self.save_server_model(self.round_model, server_round, True)
 
         metrics_aggregated = {"acc": acc_aggregated}
+        self.current_phase = self.phase_schedule(self.current_phase)
         return loss_aggregated, metrics_aggregated
 
     def evaluate(
@@ -273,6 +277,7 @@ def get_parameters(net) -> List[np.ndarray]:
 def server_fn(context: Context):
     global custom_config
     custom_config = setup()
+    manual_seed(int(custom_config["SEED"]))
     print(custom_config)
     os.environ['CUDA_LAUNCH_BLOCKING']="1"
     os.environ['TORCH_USE_CUDA_DSA'] = "1"

@@ -12,7 +12,7 @@ from flwr.client import Client, ClientApp, NumPyClient
 from flwr.server import ServerApp, ServerConfig, ServerAppComponents
 # Construct the ClientApp passing the client generation function
 client_app = ClientApp(client_fn=client_fn)
-from src.utils.utils import load_custom_config, get_gpu
+from src.utils.utils import load_custom_config, get_gpu, setup
 from src.dataloaders.client_dataloader import load_datasets_with_forgetting
 # Load configuration
 custom_config = load_custom_config()

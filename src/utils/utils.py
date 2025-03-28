@@ -1,14 +1,15 @@
 import json
 from ast import literal_eval
-from dotenv import load_dotenv, dotenv_values
+from dotenv import dotenv_values
 from .models import get_model
-import torch
 import os
 import json
 import torch
-from src.dataloaders.client_dataloader import load_datasets_with_forgetting
+import numpy as np
+import random
 # Load configuration
 from subprocess import call
+import sys
 def get_gpu():
     print('__CUDNN VERSION:', torch.backends.cudnn.version())
     print('__Number CUDA Devices:', torch.cuda.device_count())
@@ -22,7 +23,7 @@ def get_gpu():
     print ('Available devices ', torch.cuda.device_count())
     print ('Current cuda device ', torch.cuda.current_device())
     
-def load_custom_config():
+def load_custom_config_from_files():
 
     custom_config = {
             **dotenv_values("./envs/.env"),
@@ -31,6 +32,24 @@ def load_custom_config():
     custom_config["FORGET_CLASS"] = literal_eval(custom_config["FORGET_CLASS"])
     return custom_config
 
+def load_custom_config():
+    path = sys.argv[1]
+    custom_config = {
+            **dotenv_values(f"{path}/.env"),
+            **dotenv_values(f"{path}/.env.training"),
+            }
+    custom_config["FORGET_CLASS"] = literal_eval(custom_config["FORGET_CLASS"])
+    if len(custom_config["CLIENT_ID_TO_FORGET"]) > 0:
+        custom_config["CLIENT_ID_TO_FORGET"] = [int(i) for i in str(custom_config["CLIENT_ID_TO_FORGET"]).split(",")]
+
+    return custom_config
+
+def manual_seed(seed):
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def setup():
     custom_config = load_custom_config()

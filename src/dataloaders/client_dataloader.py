@@ -9,6 +9,7 @@ from typing import List, Dict
 from collections import defaultdict
 from torch.utils.data import Subset
 import random
+from ..utils.utils import load_custom_config
 
 def load_datasets(partition_id: int, num_partitions: int, seed: int = 42, shuffle: bool = True, dataset_name: str = "cifar10") -> tuple[DataLoader, DataLoader, DataLoader]:
     fds = FederatedDataset(dataset=dataset_name, partitioners={"train": num_partitions}, shuffle=shuffle, seed=seed)
@@ -34,10 +35,15 @@ def load_datasets(partition_id: int, num_partitions: int, seed: int = 42, shuffl
     val_data = train_val_split["test"].with_transform(apply_transforms)
     test_data = train_val_test_split["test"].with_transform(apply_transforms)
 
+    custom_config = load_custom_config()
+    RETRAIN_BATCH = custom_config["RETRAIN_BATCH"]
+    VAL_BATCH = custom_config["VAL_BATCH"]
+    TEST_BATCH = custom_config["TEST_BATCH"]
+
     # Create data loaders
-    trainloader = DataLoader(train_data, batch_size=32, shuffle=True)
-    valloader = DataLoader(val_data, batch_size=32)
-    testloader = DataLoader(test_data, batch_size=32)
+    trainloader = DataLoader(train_data, batch_size=RETRAIN_BATCH, shuffle=True)
+    valloader = DataLoader(val_data, batch_size=VAL_BATCH)
+    testloader = DataLoader(test_data, batch_size=TEST_BATCH)
 
     return trainloader, valloader, testloader
 
@@ -51,6 +57,8 @@ def apply_transforms(batch):
 def load_datasets_with_forgetting(partition_id: int, num_partitions: int, seed: int = 42, shuffle: bool = True,
                                   forgetting_config: Dict = {}, dataset_name: str = "cifar10") -> tuple[
     DataLoader, DataLoader, DataLoader, DataLoader]:
+    custom_config = load_custom_config()
+
     print("loading data")
     fds = FederatedDataset(dataset=dataset_name, partitioners={"train": num_partitions}, shuffle=shuffle, seed=seed)
     print("loading data completed, start partitioning for", partition_id)
@@ -92,16 +100,21 @@ def load_datasets_with_forgetting(partition_id: int, num_partitions: int, seed: 
     print(f"len retrain={len(retrainset)}, len forgetset={forgetset}, len val={len(val_data)}, len test={len(test_data)}")
 
     # Create data loaders
+    RETRAIN_BATCH = custom_config["RETRAIN_BATCH"]
+    FORGET_BATCH = custom_config["FORGET_BATCH"]
+    VAL_BATCH = custom_config["VAL_BATCH"]
+    TEST_BATCH = custom_config["TEST_BATCH"]
+
     if len(retrainset) > 0:
-        retrainloader = DataLoader(retrainset, batch_size= 512, shuffle=True)
+        retrainloader = DataLoader(retrainset, batch_size= RETRAIN_BATCH, shuffle=True)
     else:
         retrainloader = None
 
     if len(forgetset) > 0:
-        forgetloader = DataLoader(forgetset, batch_size=32, shuffle=True)
+        forgetloader = DataLoader(forgetset, batch_size=FORGET_BATCH, shuffle=True)
     else:
         forgetloader = None
-    valloader = DataLoader(val_data, batch_size=512, shuffle=True)
-    testloader = DataLoader(test_data, batch_size=512, shuffle=True)
+    valloader = DataLoader(val_data, batch_size=VAL_BATCH, shuffle=True)
+    testloader = DataLoader(test_data, batch_size=TEST_BATCH, shuffle=True)
 
     return retrainloader, forgetloader, valloader, testloader

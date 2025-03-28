@@ -29,7 +29,7 @@ from flwr.simulation import run_simulation
 from flwr_datasets import FederatedDataset
 from flwr.common import ndarrays_to_parameters, NDArrays, Scalar, Context
 from .utils.losses import KL,JS,X2, get_losses
-from .utils.utils import load_custom_config, load_initial_model, get_gpu
+from .utils.utils import load_custom_config, load_initial_model, get_gpu, manual_seed
 from .utils.models import get_model
 
 
@@ -69,8 +69,10 @@ class FlowerClient(fl.client.NumPyClient):
 
 
 
-    def model_train(self, trainloader, valloader, forgetloader, epochs: int, phase: str, lr: float) -> Dict:
-
+    def model_train(self, trainloader, forgetloader, config):
+        phase = config.get("Phase")  # Default to "LEARN"
+        epochs = config.get("local_epochs")  # Default to 1 epoch
+        lr = config.get("lr")
         print("training started")
 
         num_classes = int(self.custom_config.get("NUM_CLASSES"))
@@ -107,25 +109,27 @@ class FlowerClient(fl.client.NumPyClient):
                     loss.backward()
                     nn.utils.clip_grad_value_(self.net.parameters(), clip_value=0.5)
                     optimizer.step()
-                    # if idxs % 10 == 0:
-                    #     print(idxs)
                     with torch.no_grad():
                         total_loss += loss.item() * images.size(0)
                         preds = outputs.argmax(dim=1)
                         total_correct += (preds == labels).sum().item()
                         total_samples += images.size(0)
 
-            # Save as teacher for SCRUB
-            # self.teacher_model =get_model(self.custom_config)
-            # self.teacher_model.load_state_dict(net.state_dict())
-        elif phase == "MAXIMIZE":
+            avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
+            accuracy = total_correct / total_samples if total_samples > 0 else 0.0
+            return {"loss": avg_loss, "accuracy": accuracy,
+                    "maxloss": 0, "maxacc": 0}, total_samples
+
+        if phase == "MAX" and config["UNLEARN_CON"] == "TRUE":
             if not hasattr(self, 'teacher_model'):
                 raise ValueError("Teacher model not found. Run LEARN phase first.")
             teacher = self.teacher_model
             teacher.eval()
 
             for _ in range(epochs):
-                for images, labels in forgetloader:
+                for idxs, batch_data in enumerate(forgetloader):
+                    images = batch_data["img"]
+                    labels = batch_data["label"]
                     images, labels = images.to(DEVICE), labels.to(DEVICE)
                     optimizer.zero_grad()
                     with torch.no_grad():
@@ -142,15 +146,20 @@ class FlowerClient(fl.client.NumPyClient):
                         preds = student_outputs.argmax(dim=1)
                         total_correct += (preds == labels).sum().item()
                         total_samples += images.size(0)
+            avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
+            accuracy = total_correct / total_samples if total_samples > 0 else 0.0
+            return {"loss": 0, "accuracy": 0, "maxloss": avg_loss, "maxacc":accuracy}, total_samples
 
-        elif phase == "MINIMIZE":
+        if phase == "MIN":
             if not hasattr(self, 'teacher_model'):
                 raise ValueError("Teacher model not found. Run LEARN phase first.")
             teacher = self.teacher_model
             teacher.eval()
 
             for _ in range(epochs):
-                for images, labels in trainloader:
+                for idxs, batch_data in enumerate(forgetloader):
+                    images = batch_data["img"]
+                    labels = batch_data["label"]
                     images, labels = images.to(DEVICE), labels.to(DEVICE)
                     optimizer.zero_grad()
 
@@ -172,11 +181,45 @@ class FlowerClient(fl.client.NumPyClient):
                         preds = student_outputs.argmax(dim=1)
                         total_correct += (preds == labels).sum().item()
                         total_samples += images.size(0)
+            if config["UNLEARN_CON"] != "TRUE":
+                for _ in range(epochs):
+                    for idxs, batch_data in enumerate(trainloader):
+                        images = batch_data["img"]
+                        labels = batch_data["label"]
+                        images, labels = images.to(DEVICE), labels.to(DEVICE)
+                        optimizer.zero_grad()
 
-        avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
-        accuracy = total_correct / total_samples if total_samples > 0 else 0.0
-        return {"loss": avg_loss, "accuracy": accuracy}
-    
+                        with torch.no_grad():
+                            teacher_outputs = teacher(images)
+                            teacher_probs = F.softmax(teacher_outputs, dim=1)
+
+                        student_outputs = self.net(images)
+
+                        loss_cls = criterion_cls(student_outputs, labels)
+                        loss_div = criterion_div(student_outputs, teacher_probs)
+
+                        loss = gamma * loss_cls + alpha * loss_div
+                        loss.backward()
+                        optimizer.step()
+
+                        with torch.no_grad():
+                            total_loss += loss.item() * images.size(0)
+                            preds = student_outputs.argmax(dim=1)
+                            total_correct += (preds == labels).sum().item()
+                            total_samples += images.size(0)
+            avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
+            accuracy = total_correct / total_samples if total_samples > 0 else 0.0
+            return {"loss": avg_loss, "accuracy": accuracy,
+                    "maxloss": 0, "maxacc": 0}, total_samples
+
+
+
+        return {"loss": 0, "accuracy": 0,
+                    "maxloss": 0, "maxacc": 0}, 0
+
+
+
+
     def model_eval(self) -> Dict:
         """Evaluate the model on a given data loader."""
         criterion = nn.CrossEntropyLoss()
@@ -202,13 +245,9 @@ class FlowerClient(fl.client.NumPyClient):
 
     def fit(self, parameters, config):
         print(f"[Client {self.partition_id}] fit, config: {config}")
-        current_phase = config.get("Phase", "LEARN")  # Default to "LEARN"
-        local_epochs = config.get("local_epochs")  # Default to 1 epoch
-        lr = config.get("lr")
-        
         self.set_parameters(parameters)
         
-        metrics_dict = self.model_train(self.train_loader, self.valloader, self.forgetloader, local_epochs, phase=current_phase, lr=lr)    
+        metrics_dict, size_of_set = self.model_train(self.train_loader, self.forgetloader, config)
         # Include data indices in the metrics returned to server
         metrics = {
         "train_loss": metrics_dict["loss"],
@@ -216,7 +255,7 @@ class FlowerClient(fl.client.NumPyClient):
         }
         
         # Return updated model parameters and number of training examples
-        return self.get_parameters(), len(self.train_loader.dataset), metrics
+        return self.get_parameters(), size_of_set, metrics
 
     def evaluate(self, parameters, config):
         """Evaluate the model on the data this client has."""
@@ -227,6 +266,7 @@ class FlowerClient(fl.client.NumPyClient):
 def client_fn(context: Context) -> Client:
     os.environ['CUDA_LAUNCH_BLOCKING']="1"
     os.environ['TORCH_USE_CUDA_DSA'] = "1"
+    manual_seed(int(custom_config["SEED"]))
 
 
     # Read the node_config to fetch data partition associated to this node

@@ -19,6 +19,82 @@ def apply_transforms(batch):
     return batch
 
 
+import random
+from torch.utils.data import Subset
+from torchvision import datasets, transforms
+
+
+def configure_balanced_partition(root: str, dataset_name: str, partition_id: int, num_partitions: int, seed: int,
+                                 shuffle: bool) -> Subset:
+    """
+    Load a dataset and partition it so that each partition gets the same number of samples per label.
+
+    Args:
+        root (str): Path to dataset storage.
+        dataset_name (str): Name of the dataset (currently only "CIFAR10" is supported).
+        partition_id (int): The partition index (0 to num_partitions - 1).
+        num_partitions (int): Total number of partitions.
+        seed (int): Random seed for reproducibility.
+        shuffle (bool): Whether to shuffle indices within each label partition.
+
+    Returns:
+        Subset: A PyTorch Subset containing the balanced partition of data.
+    """
+    # Load dataset
+    if dataset_name.lower() == "cifar10":
+        dataset = datasets.CIFAR10(root=root, train=False, download=True, transform=transforms.ToTensor())
+    else:
+        raise ValueError("Unsupported dataset")
+
+    # Validate partition_id
+    if not (0 <= partition_id < num_partitions):
+        raise ValueError(f"partition_id must be between 0 and {num_partitions - 1}")
+
+    # Group indices by label (CIFAR10 labels are in dataset.targets)
+    label_to_indices = {}
+    for idx, label in enumerate(dataset.targets):
+        label_to_indices.setdefault(label, []).append(idx)
+
+    partition_indices = []
+
+    # For each label, shuffle and evenly split indices
+    for label, indices in label_to_indices.items():
+        # Set the seed for reproducibility, then shuffle the indices for this label.
+        random.seed(seed)
+        random.shuffle(indices)
+
+        # Determine the size of each partition for this label.
+        base_size = len(indices) // num_partitions
+        extra = len(indices) % num_partitions  # Some partitions may get one extra sample
+
+        # Compute starting index for the current partition.
+        # Partitions with an index less than `extra` receive one extra sample.
+        start_idx = sum(base_size + 1 if i < extra else base_size for i in range(partition_id))
+        part_size = base_size + 1 if partition_id < extra else base_size
+        end_idx = start_idx + part_size
+
+        label_partition = indices[start_idx:end_idx]
+
+        # Optionally shuffle the slice from this label if desired.
+        if shuffle:
+            random.shuffle(label_partition)
+
+        partition_indices.extend(label_partition)
+
+    # Optionally shuffle the combined partition indices.
+    if shuffle:
+        random.shuffle(partition_indices)
+
+    print(
+        f"Balanced partition {partition_id} loaded with {len(partition_indices)} samples (each label equally represented)")
+    return Subset(dataset, partition_indices)
+
+from torch.utils.data import Subset
+from collections import defaultdict
+import random
+from torch.utils.data import DataLoader
+from typing import Dict, Tuple, Optional
+
 def load_datasets_with_forgetting(
         partition_id: int,
         num_partitions: int,
@@ -28,51 +104,72 @@ def load_datasets_with_forgetting(
         dataset_name: str = "cifar10"
 ) -> Tuple[Optional[DataLoader], Optional[DataLoader], DataLoader, DataLoader]:
     """
-    Load and partition datasets with forgetting functionality.
-
-    Args:
-        partition_id: ID of the partition to load
-        num_partitions: Total number of partitions
-        seed: Random seed for reproducibility
-        shuffle: Whether to shuffle the data
-        forgetting_config: Configuration for class-specific forgetting rates
-        dataset_name: Name of the dataset to load
-
-    Returns:
-        Tuple of DataLoaders: (retrainloader, forgetloader, valloader, testloader)
+    Load and partition datasets with forgetting functionality and print class distributions.
     """
     custom_config = load_custom_config()
 
-    print("Loading data")
-    fds = FederatedDataset(dataset=dataset_name, partitioners={"train": num_partitions},
-                           shuffle=shuffle, seed=seed)
-    print(f"Loading data completed, start partitioning for {partition_id}")
-    partition = fds.load_partition(partition_id)
-    print(f"Partition loaded with {len(partition)} samples")
+    partition = configure_balanced_partition(root="./data",
+                                             dataset_name=dataset_name,
+                                             partition_id=partition_id,
+                                             num_partitions=num_partitions,
+                                             seed=seed,
+                                             shuffle=shuffle)
 
-    # First split: 90% train+val, 10% test
-    train_val_test_split = partition.train_test_split(test_size=0.1, seed=seed)
+    # Group data by class labels
+    label_to_indices = defaultdict(list)
+    for idx, item in enumerate(partition):
+        label_to_indices[item[1]].append(idx)
 
-    # Second split: Split the 90% into 8/9 train (~80% of total) and 1/9 val (~10% of total)
-    train_val_split = train_val_test_split["train"].train_test_split(test_size=1 / 9, seed=seed)
+    # Ensure reproducibility
+    random.seed(seed)
 
-    # Apply transforms to the datasets
-    train_data = train_val_split["train"].with_transform(apply_transforms)
-    val_data = train_val_split["test"].with_transform(apply_transforms)
-    test_data = train_val_test_split["test"].with_transform(apply_transforms)
+    # Split the indices for each class
+    train_indices, val_indices, test_indices = [], [], []
+    for label, indices in label_to_indices.items():
+        # Shuffle indices for each class
+        random.shuffle(indices)
 
-    # Group indices by class
+        # Split the indices: 80% train, 10% val, 10% test
+        total_size = len(indices)
+        train_size = int(0.8 * total_size)
+        val_size = int(0.1 * total_size)
+        test_size = total_size - train_size - val_size
+
+        train_indices.extend(indices[:train_size])
+        val_indices.extend(indices[train_size:train_size + val_size])
+        test_indices.extend(indices[train_size + val_size:])
+
+    # Create Subsets for train, val, and test
+    train_data = Subset(partition, train_indices)
+    val_data = Subset(partition, val_indices)
+    test_data = Subset(partition, test_indices)
+
+    # Compute class distributions
+    def compute_class_distribution(dataset):
+        class_counts = defaultdict(int)
+        for item in dataset:
+            class_counts[item[1]] += 1
+        return class_counts
+
+    train_distribution = compute_class_distribution(train_data)
+    val_distribution = compute_class_distribution(val_data)
+    test_distribution = compute_class_distribution(test_data)
+
+    print("Class distributions:")
+    print(f"Train: {train_distribution}")
+    print(f"Val: {val_distribution}")
+    print(f"Test: {test_distribution}")
+
+    # Now split the train set into retrain and forget sets based on forgetting_config
     class_indices = defaultdict(list)
     for i, x in enumerate(train_data):
-        class_indices[x["label"]].append(i)
+        class_indices[x[1]].append(i)
 
     forget_indices = []
     retrain_indices = []
 
-    # Split data into forget and retrain sets based on forgetting_config
     for cls, indices in class_indices.items():
         if cls in forgetting_config:
-            random.seed(seed)  # Ensure reproducibility
             random.shuffle(indices)
             forget_count = int(len(indices) * forgetting_config[cls])
             forget_indices.extend(indices[:forget_count])
@@ -80,22 +177,22 @@ def load_datasets_with_forgetting(
         else:
             retrain_indices.extend(indices)
 
-    print(f"Forget set: {len(forget_indices)} samples, Retrain set: {len(retrain_indices)} samples")
-
-    # Create subsets
     forgetset = Subset(train_data, forget_indices)
     retrainset = Subset(train_data, retrain_indices)
 
-    print(f"Final sizes - Retrain: {len(retrainset)}, Forget: {len(forgetset)}, "
-          f"Validation: {len(val_data)}, Test: {len(test_data)}")
+    # Compute forget and retrain distributions
+    forget_distribution = compute_class_distribution(forgetset)
+    retrain_distribution = compute_class_distribution(retrainset)
 
-    # Get batch sizes from config
+    print(f"Forget set: {forget_distribution}")
+    print(f"Retrain set: {retrain_distribution}")
+
+    # Create DataLoaders
     retrain_batch = custom_config["RETRAIN_BATCH"]
     forget_batch = custom_config["FORGET_BATCH"]
     val_batch = custom_config["VAL_BATCH"]
     test_batch = custom_config["TEST_BATCH"]
 
-    # Create data loaders
     retrainloader = DataLoader(retrainset, batch_size=retrain_batch, shuffle=True) if len(retrainset) > 0 else None
     forgetloader = DataLoader(forgetset, batch_size=forget_batch, shuffle=True) if len(forgetset) > 0 else None
     valloader = DataLoader(val_data, batch_size=val_batch, shuffle=True)

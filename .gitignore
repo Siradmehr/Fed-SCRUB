@@ -16,3 +16,7 @@ __pycache__/
 *$py.class
 src/utils/__pycache__
 log.txt
+data/
+data/cifar-10-batches-py data/cifar-10-python.tar.gz
+./data/cifar-10-batches-py ./data/cifar-10-python.tar.gz
+./data

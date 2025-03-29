@@ -65,8 +65,11 @@ def load_config(path: str = "./envs") -> Dict:
 
         # Process comma-separated integer lists
         for key in ["CLIENT_ID_TO_FORGET", "LR_ROUND"]:
-            if key in config and config[key]:
+            if config[key]:
                 config[key] = [int(i) for i in str(config[key]).split(",")]
+            else:
+                config[key] = []
+
     except (ValueError, SyntaxError) as e:
         raise ValueError(f"Error parsing configuration: {e}")
 

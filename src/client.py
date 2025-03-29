@@ -12,7 +12,7 @@ from flwr.common import NDArrays, Scalar, Context
 
 from .utils.eval import compute_mia_score
 from .utils.losses import get_losses
-from .utils.utils import load_custom_config, load_initial_model, get_gpu, manual_seed
+from .utils.utils import load_config, load_model, set_seed, get_device
 from .utils.models import get_model
 from .dataloaders.client_dataloader import load_datasets_with_forgetting
 from .utils.eval import _calculate_metrics, _eval_mode
@@ -21,8 +21,8 @@ os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 os.environ['TORCH_USE_CUDA_DSA'] = "1"
 
 # Load configuration once
-custom_config = load_custom_config()
-DEVICE = torch.device(custom_config["DEVICE"] if torch.cuda.is_available() else "cpu")
+custom_config = load_config()
+DEVICE = get_device(custom_config)
 
 
 class FlowerClient(NumPyClient):
@@ -39,7 +39,6 @@ class FlowerClient(NumPyClient):
         self.best_acc = 0
         self.teacher_model = None
         print(f"Client {partition_id} initialized on device: {self.device}")
-        get_gpu()
 
     def get_parameters(self) -> List[np.ndarray]:
         print(f"[Client {self.partition_id}] get_parameters")
@@ -254,7 +253,7 @@ class FlowerClient(NumPyClient):
 
         # Initialize teacher model if needed
         if config.get("TEACHER") == "INIT":
-            self.teacher_model = load_initial_model(
+            self.teacher_model = load_model(
                 self.custom_config['MODEL'],
                 self.custom_config["RESUME"]
             )
@@ -318,7 +317,7 @@ def client_fn(context: Context) -> Client:
     os.environ['TORCH_USE_CUDA_DSA'] = "1"
 
     # Set random seed
-    manual_seed(int(custom_config["SEED"]))
+    set_seed(int(custom_config["SEED"]))
 
     # Get partition information
     partition_id = context.node_config["partition-id"]

@@ -26,7 +26,7 @@ from flwr.server.client_proxy import ClientProxy
 from flwr.server.strategy import FedAvg
 from flwr.server.strategy.aggregate import aggregate, weighted_loss_avg
 
-from .utils.utils import load_custom_config, setup, manual_seed, save_model
+from .utils.utils import save_model, load_model, set_seed, get_device, setup_experiment
 from .utils.models import get_model
 from .utils.lr_scheduler import FederatedScheduler
 
@@ -45,6 +45,7 @@ class FedCustom(FedAvg):
             min_fit_clients: int = 2,
             min_evaluate_clients: int = 2,
             min_available_clients: int = 2,
+            lr: float = 0.01,
             initial_parameters: Optional[Parameters] = None,
             starting_phase: str = "LEARN",
             scheduler: Optional[FederatedScheduler] = None
@@ -72,7 +73,7 @@ class FedCustom(FedAvg):
         self.current_phase = starting_phase
         self.best_acc = 0
         self.round_model = None
-        self.lr = 0.01  # Default value, will be overridden
+        self.lr = lr  # Default value, will be overridden
         self.lr_scheduler = scheduler
         # Initialize logging
         self.round_log = [0, 0, 0, 0, 0, 0]
@@ -108,7 +109,8 @@ class FedCustom(FedAvg):
         #     self.lr *= float(custom_config["LR_DECAY_RATE"])
         #     print(f"UPDATING LEARNING RATE TO {self.lr}")
 
-        self.lr = self.lr_scheduler.current_lr()
+        print(self.lr_scheduler)
+        self.lr = self.lr_scheduler.current_lr
         self.lr_scheduler.update_after_round()
 
         # Create base configuration
@@ -359,8 +361,8 @@ def server_fn(context: Context) -> ServerAppComponents:
     global custom_config
 
     # Setup configuration
-    custom_config = setup(sys.argv[1])
-    manual_seed(int(custom_config["SEED"]))
+    custom_config = setup_experiment(sys.argv[1])
+    set_seed(int(custom_config["SEED"]))
     print(custom_config)
 
     # Configure server
@@ -381,9 +383,10 @@ def server_fn(context: Context) -> ServerAppComponents:
         min_evaluate_clients=min_clients,
         min_available_clients=min_clients,
         initial_parameters=parameters,
+        lr=float(custom_config["LR"]),
         scheduler=FederatedScheduler(),
     )
-    strategy.lr = float(custom_config["LR"])
+    print(strategy.lr_scheduler)
 
     # Create server configuration
     config = ServerConfig(num_rounds=num_rounds)

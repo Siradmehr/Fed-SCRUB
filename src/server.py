@@ -165,8 +165,8 @@ class FedCustom(FedAvg):
             self.round_log[2] = loss
             self.round_log[3] = acc
         else:
-            self.round_log[2] = loss
-            self.round_log[3] = acc
+            self.round_log[0] = loss
+            self.round_log[1] = acc
 
         maxloss_aggregated = weighted_loss_avg(
             [
@@ -194,7 +194,7 @@ class FedCustom(FedAvg):
 
         self.max_logs.to_csv(os.path.join(custom_config["SAVING_DIR"], "max_logs.csv"))
 
-        time.sleep(1)
+        time.sleep(2)
         return parameters_aggregated, metrics_aggregated
 
     def configure_evaluate(

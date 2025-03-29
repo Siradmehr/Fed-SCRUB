@@ -28,7 +28,7 @@ def load_custom_config_from_files():
 
 INT_KEYS = ["RETRAIN_BATCH", "FORGET_BATCH", "VAL_BATCH", "TEST_BATCH", "NUM_CLASSES"
             ,"LOCAL_EPOCHS", "MIN_EPOCHS", "MAX_EPOCHS", "LAST_MAX_STEPS",]
-def load_custom_config(path: str = "envs/unlearning"):
+def load_custom_config(path: str = "./envs"):
     print("PATH", path)
     custom_config = {
             **dotenv_values(f"{path}/.env"),
@@ -51,7 +51,7 @@ def manual_seed(seed):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-def setup(path: str = "envs/unlearning"):
+def setup(path: str = "./envs"):
     custom_config = load_custom_config(path)
     saving_directory = f"./checkpoints/{custom_config["CONFIG_ID"]}/{custom_config['MODEL']}/{custom_config["DATASET"]}/{custom_config['CONFIG_NUMBER']}_{custom_config['SEED']}"
     os.makedirs(saving_directory, exist_ok=True)

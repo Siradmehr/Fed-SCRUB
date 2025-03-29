@@ -1,30 +1,13 @@
 import os
-
-os.environ['CUDA_LAUNCH_BLOCKING']="1"
-os.environ['TORCH_USE_CUDA_DSA'] = "1"
-
-import flwr as fl
-from flwr.common import Parameters
-from flwr.server import ServerApp, ServerConfig, ServerAppComponents
-from flwr.server.strategy import FedAvg
-from typing import Dict, List, Optional, Tuple, Union
-import numpy as np
-from dotenv import load_dotenv, dotenv_values
-from flwr.server.client_manager import SimpleClientManager
-from .utils.utils import load_custom_config, setup, manual_seed
-# Load configuration
-import os
 import sys
-custom_config = load_custom_config(sys.argv[1])
-import torch
+import time
+from typing import Dict, List, Optional, Tuple, Union, Any
 from collections import OrderedDict
-from .utils.utils import save_model
-from .utils.models import get_model
-from flwr.common import ndarrays_to_parameters, NDArrays, Scalar, Context
+
+import numpy as np
 import pandas as pd
-
-from typing import Union
-
+import torch
+import flwr as fl
 from flwr.common import (
     EvaluateIns,
     EvaluateRes,
@@ -32,25 +15,49 @@ from flwr.common import (
     FitRes,
     Parameters,
     Scalar,
+    Context,
+    NDArrays,
     ndarrays_to_parameters,
     parameters_to_ndarrays,
 )
-from flwr.server.client_manager import ClientManager
+from flwr.server import ServerApp, ServerConfig, ServerAppComponents
+from flwr.server.client_manager import ClientManager, SimpleClientManager
 from flwr.server.client_proxy import ClientProxy
+from flwr.server.strategy import FedAvg
 from flwr.server.strategy.aggregate import aggregate, weighted_loss_avg
-import time
+
+from .utils.utils import load_custom_config, setup, manual_seed, save_model
+from .utils.models import get_model
+
+# Configure CUDA
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+os.environ['TORCH_USE_CUDA_DSA'] = "1"
+
 
 class FedCustom(FedAvg):
+    """Custom Federated Learning strategy with phased learning for unlearning tasks."""
+
     def __init__(
-        self,
-        fraction_fit: float = 1.0,
-        fraction_evaluate: float = 1.0,
-        min_fit_clients: int = 2,
-        min_evaluate_clients: int = 2,
-        min_available_clients: int = 2,
-        initial_parameters = None,
-        starting_phase = "LEARN",
+            self,
+            fraction_fit: float = 1.0,
+            fraction_evaluate: float = 1.0,
+            min_fit_clients: int = 2,
+            min_evaluate_clients: int = 2,
+            min_available_clients: int = 2,
+            initial_parameters: Optional[Parameters] = None,
+            starting_phase: str = "LEARN",
     ) -> None:
+        """Initialize the FedCustom strategy.
+
+        Args:
+            fraction_fit: Fraction of clients to sample for training
+            fraction_evaluate: Fraction of clients to sample for evaluation
+            min_fit_clients: Minimum number of clients for training
+            min_evaluate_clients: Minimum number of clients for evaluation
+            min_available_clients: Minimum number of available clients
+            initial_parameters: Initial model parameters
+            starting_phase: Initial learning phase (LEARN, MAX, or MIN)
+        """
         super().__init__()
         self.fraction_fit = fraction_fit
         self.fraction_evaluate = fraction_evaluate
@@ -60,33 +67,33 @@ class FedCustom(FedAvg):
         self.initial_parameters = initial_parameters
         self.main_teacher = initial_parameters
         self.starting_phase = starting_phase
-        self.current_phase = self.starting_phase
+        self.current_phase = starting_phase
         self.best_acc = 0
         self.round_model = None
-        self.round_log = [0,0,0,0,0,0]
-        self.data_logs = pd.DataFrame(columns=["TRAINING_LOSS", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC"])
-        self.max_logs = pd.DataFrame(columns=["MAX_LOSS", "MAX_ACC", "MIA"])
+        self.lr = 0.01  # Default value, will be overridden
 
-
+        # Initialize logging
+        self.round_log = [0, 0, 0, 0, 0, 0]
+        self.data_logs = pd.DataFrame(
+            columns=["TRAINING_LOSS", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC"]
+        )
+        self.max_logs = pd.DataFrame(
+            columns=["MAX_LOSS", "MAX_ACC", "MIA"]
+        )
 
     def __repr__(self) -> str:
         return "FedCustom"
 
-    def initialize_parameters(
-        self, client_manager: ClientManager
-    ) -> Optional[Parameters]:
+    def initialize_parameters(self, client_manager: ClientManager) -> Optional[Parameters]:
         """Initialize global model parameters."""
         return self.initial_parameters
 
     def configure_fit(
-        self, server_round: int, parameters: Parameters, client_manager: ClientManager
+            self, server_round: int, parameters: Parameters, client_manager: ClientManager
     ) -> List[Tuple[ClientProxy, FitIns]]:
         """Configure the next round of training."""
-
         # Sample clients
-        sample_size, min_num_clients = self.num_fit_clients(
-            client_manager.num_available()
-        )
+        sample_size, min_num_clients = self.num_fit_clients(client_manager.num_available())
         clients = client_manager.sample(
             num_clients=sample_size, min_num_clients=min_num_clients
         )
@@ -94,73 +101,75 @@ class FedCustom(FedAvg):
         print(f"Round {server_round}: Phase = {self.current_phase}")
         print(f"{len(clients)} clients selected for training")
 
-        # Create custom configs
-
+        # Update learning rate if needed
         if (server_round in custom_config["LR_ROUND"]) and self.lr > 0.0001:
             self.lr *= float(custom_config["LR_DECAY_RATE"])
-            print("UPDATING LEARNING RATE TO", self.lr)
+            print(f"UPDATING LEARNING RATE TO {self.lr}")
 
-        standard_config = {"lr": self.lr, "Phase": self.current_phase,
-                           "min_epochs" : int(custom_config.get("MIN_EPOCHS")),
-                           "max_epochs" : int(custom_config.get("MAX_EPOCHS")),
-                           "local_epochs": int(custom_config.get("LOCAL_EPOCHS")),
-                           "UNLEARN_CON": "FALSE", "TEACHER": custom_config["TEACHER"]}
+        # Create base configuration
+        standard_config = {
+            "lr": self.lr,
+            "Phase": self.current_phase,
+            "min_epochs": int(custom_config.get("MIN_EPOCHS")),
+            "max_epochs": int(custom_config.get("MAX_EPOCHS")),
+            "local_epochs": int(custom_config.get("LOCAL_EPOCHS")),
+            "UNLEARN_CON": "FALSE",
+            "TEACHER": custom_config["TEACHER"]
+        }
+
+        # Create client-specific configurations
         fit_configurations = []
         forget_clients = custom_config["CLIENT_ID_TO_FORGET"]
-        print(forget_clients)
         for idx, client in enumerate(clients):
             client_config = standard_config.copy()
-            # TODO choose the index of client to forget.
-            print(idx)
             if idx in forget_clients:
-                print("index to contribute to unlearn", idx)
+                print(f"Client {idx} will contribute to unlearning")
                 client_config["UNLEARN_CON"] = "TRUE"
-            print(client_config)
             fit_configurations.append((client, FitIns(parameters, client_config)))
+
         return fit_configurations
 
-
-    def phase_schedule(self, phase: str, round: int) -> str:
-        switcher = {
+    def phase_schedule(self, phase: str, round_num: int) -> str:
+        """Determine the next phase based on current phase and round number."""
+        phase_transitions = {
             "LEARN": "LEARN",
             "MAX": "MIN",
             "MIN": "MAX"
         }
 
-        if custom_config["LAST_MAX_STEPS"] <= round:
-            if phase == "MIN":
-                return "MIN"
-        return switcher.get(phase, "LEARN")
+        # Special case: stay in MIN phase if we've reached LAST_MAX_STEPS
+        if custom_config["LAST_MAX_STEPS"] <= round_num and phase == "MIN":
+            return "MIN"
+
+        return phase_transitions.get(phase, "LEARN")
 
     def aggregate_fit(
-        self,
-        server_round: int,
-        results: List[Tuple[ClientProxy, FitRes]],
-        failures: List[Union[Tuple[ClientProxy, FitRes], BaseException]],
+            self,
+            server_round: int,
+            results: List[Tuple[ClientProxy, FitRes]],
+            failures: List[Union[Tuple[ClientProxy, FitRes], Any]],
     ) -> Tuple[Optional[Parameters], Dict[str, Scalar]]:
         """Aggregate fit results using weighted average."""
-        print(f"Aggregating aggregate_fit updates from {len(results)} clients, {len(failures)} failures")
-        print(failures)
+        print(f"Aggregating updates from {len(results)} clients, {len(failures)} failures")
+        if failures:
+            print(f"Failures: {failures}")
 
-        # par_list = []
-        # for _, fit_res in results:
-        #     if fit_res.num_examples > 0:
-        #         par_list.append((parameters_to_ndarrays(fit_res.parameters), fit_res.num_examples) )
-
+        # Extract valid results
         weights_results = [
-            (parameters_to_ndarrays(fit_res.parameters), fit_res.num_examples) 
+            (parameters_to_ndarrays(fit_res.parameters), fit_res.num_examples)
             for _, fit_res in results if fit_res.num_examples > 0
         ]
-        print(f"Aggregating aggregate_fit round {server_round}  self.current_phase={self.current_phase} len(weights_results)={len(weights_results)}")
-        print("\n",flush=True)
-        parameters_aggregated = ndarrays_to_parameters(aggregate(weights_results))
 
-        self.aggr_metrices(results)
-        self.save_server_model(parameters_aggregated, server_round)
+        print(f"Aggregating round {server_round}, phase={self.current_phase}, valid results={len(weights_results)}")
+
+        # Aggregate parameters
+        parameters_aggregated = ndarrays_to_parameters(aggregate(weights_results))
         self.round_model = parameters_aggregated
 
-        metrics_aggregated = {}
-        loss, acc = self.aggr_metrices(results)
+        # Aggregate metrics
+        loss, acc = self.aggregate_metrics(results)
+
+        # Store metrics based on current phase
         if self.current_phase == "MAX":
             self.round_log[2] = loss
             self.round_log[3] = acc
@@ -168,34 +177,54 @@ class FedCustom(FedAvg):
             self.round_log[0] = loss
             self.round_log[1] = acc
 
-        maxloss_aggregated = weighted_loss_avg(
-            [
-                (int(evaluate_res.metrics["max_size"]), float(evaluate_res.metrics["max_loss"]))
-                for _, evaluate_res in results if int(evaluate_res.metrics["max_size"]) > 0
-            ]
-        )
-        maxacc_aggregated = weighted_loss_avg(
-            [
-                (int(evaluate_res.metrics["max_size"]), float(evaluate_res.metrics["max_acc"]))
-                for _, evaluate_res in results if int(evaluate_res.metrics["max_size"]) > 0
-            ]
-        )
-        metrics_aggregated["maxacc"] = maxacc_aggregated
-        metrics_aggregated["maxloss"] = maxloss_aggregated
+        # Aggregate MAX phase specific metrics
+        metrics_aggregated = self.aggregate_max_metrics(results)
 
-        new_log = {"MAX_LOSS": maxloss_aggregated, "MAX_ACC": maxacc_aggregated, "MIA": "0"}
+        # Save model and logs
+        self.save_server_model(parameters_aggregated, server_round)
+        self.save_max_logs(metrics_aggregated)
 
-        new_log = {k:[new_log[k]] for k in new_log}
-        new_log = pd.DataFrame(new_log)
-
-        self.max_logs = pd.concat(
-            [self.max_logs, new_log],
-            ignore_index=True)
-
-        self.max_logs.to_csv(os.path.join(custom_config["SAVING_DIR"], "max_logs.csv"))
-
-        time.sleep(2)
         return parameters_aggregated, metrics_aggregated
+
+    def aggregate_metrics(self, results: List[Tuple[ClientProxy, FitRes]]) -> Tuple[float, float]:
+        """Aggregate training metrics from client results."""
+        loss_aggregated = weighted_loss_avg([
+            (res.num_examples, float(res.metrics["train_loss"]))
+            for _, res in results if res.num_examples > 0
+        ])
+
+        acc_aggregated = weighted_loss_avg([
+            (res.num_examples, float(res.metrics["train_accuracy"]))
+            for _, res in results if res.num_examples > 0
+        ])
+
+        return loss_aggregated, acc_aggregated
+
+    def aggregate_max_metrics(self, results: List[Tuple[ClientProxy, FitRes]]) -> Dict[str, Scalar]:
+        """Aggregate MAX phase specific metrics."""
+        max_loss = weighted_loss_avg([
+            (int(res.metrics["max_size"]), float(res.metrics["max_loss"]))
+            for _, res in results if int(res.metrics["max_size"]) > 0
+        ])
+
+        max_acc = weighted_loss_avg([
+            (int(res.metrics["max_size"]), float(res.metrics["max_acc"]))
+            for _, res in results if int(res.metrics["max_size"]) > 0
+        ])
+
+        return {"maxloss": max_loss, "maxacc": max_acc}
+
+    def save_max_logs(self, metrics: Dict[str, Scalar]) -> None:
+        """Save MAX phase metrics to CSV."""
+        new_log = {
+            "MAX_LOSS": [metrics["maxloss"]],
+            "MAX_ACC": [metrics["maxacc"]],
+            "MIA": [0]
+        }
+
+        new_df = pd.DataFrame(new_log)
+        self.max_logs = pd.concat([self.max_logs, new_df], ignore_index=True)
+        self.max_logs.to_csv(os.path.join(custom_config["SAVING_DIR"], "max_logs.csv"))
 
     def configure_evaluate(
             self, server_round: int, parameters: Parameters, client_manager: ClientManager
@@ -204,151 +233,141 @@ class FedCustom(FedAvg):
         if self.fraction_evaluate == 0.0:
             return []
 
-        config = {"Phase": self.current_phase}
-        evaluate_ins = EvaluateIns(parameters, config)
-
         # Sample clients
-        sample_size, min_num_clients = self.num_evaluation_clients(
-            client_manager.num_available()
-        )
+        sample_size, min_num_clients = self.num_evaluation_clients(client_manager.num_available())
         clients = client_manager.sample(
             num_clients=sample_size, min_num_clients=min_num_clients
         )
-        # Return client/config pairs
+
+        # Create evaluation instructions
+        config = {"Phase": self.current_phase}
+        evaluate_ins = EvaluateIns(parameters, config)
+
         return [(client, evaluate_ins) for client in clients]
-    
-
-    def aggr_metrices(self, results):
-        loss_list = []
-        for _, evaluate_res in results:
-            if evaluate_res.num_examples > 0:
-                loss_list.append((evaluate_res.num_examples, float(evaluate_res.metrics["train_loss"])))
-
-        loss_aggregated = weighted_loss_avg(
-            loss_list
-        )
-        acc_aggregated = weighted_loss_avg(
-            [
-                (evaluate_res.num_examples, float(evaluate_res.metrics["train_accuracy"]))
-                for _, evaluate_res in results if evaluate_res.num_examples > 0
-            ]
-        )
-
-
-
-        return loss_aggregated, acc_aggregated
-
 
     def aggregate_evaluate(
-        self,
-        server_round: int,
-        results: List[Tuple[ClientProxy, EvaluateRes]],
-        failures: List[Union[Tuple[ClientProxy, EvaluateRes], BaseException]],
+            self,
+            server_round: int,
+            results: List[Tuple[ClientProxy, EvaluateRes]],
+            failures: List[Union[Tuple[ClientProxy, EvaluateRes], Any]],
     ) -> Tuple[Optional[float], Dict[str, Scalar]]:
-        """Aggregate evaluation losses using weighted average."""
-
-        print(f"Aggregating aggregate_evaluate updates from {len(results)} clients, {len(failures)} failures")
-        print(failures)
+        """Aggregate evaluation results."""
+        print(f"Aggregating evaluation from {len(results)} clients, {len(failures)} failures")
+        if failures:
+            print(f"Failures: {failures}")
 
         if not results:
-            print("Aggregating aggregate_evaluate No results")
+            print("No evaluation results to aggregate")
             return None, {}
 
-        loss_aggregated = weighted_loss_avg(
-            [
-                (evaluate_res.num_examples, evaluate_res.loss)
-                for _, evaluate_res in results
-            ]
-        )
-        acc_aggregated = weighted_loss_avg(
-            [
-                (evaluate_res.num_examples, float(evaluate_res.metrics["accuracy"]))
-                for _, evaluate_res in results
-            ]
-        )
-        print(f"Aggregating aggregate_evaluate round {server_round}  self.current_phase={self.current_phase}")
-        print(f"round {server_round} ACC is = ", acc_aggregated)
-        print(f"round {server_round} loss is = ", loss_aggregated)
+        # Aggregate loss and accuracy
+        loss_aggregated = weighted_loss_avg([
+            (res.num_examples, res.loss)
+            for _, res in results
+        ])
+
+        acc_aggregated = weighted_loss_avg([
+            (res.num_examples, float(res.metrics["accuracy"]))
+            for _, res in results
+        ])
+
+        print(f"Round {server_round}, phase={self.current_phase}")
+        print(f"Accuracy: {acc_aggregated:.4f}, Loss: {loss_aggregated:.4f}")
+
+        # Store validation metrics
         self.round_log[4] = loss_aggregated
         self.round_log[5] = acc_aggregated
-        new_log = {"TRAINING_LOSS": self.round_log[0], "TRAINING_ACC": self.round_log[1]
-                   , "FORGET_LOSS": self.round_log[2], "FORGET_ACC": self.round_log[3], "VAL_LOSS": self.round_log[4]
-                   , "VAL_ACC":self.round_log[5]}
-        new_log = {k:[new_log[k]] for k in new_log}
-        new_log = pd.DataFrame(new_log)
-        
-        # Append the new log to the existing data_logs
-        self.data_logs = pd.concat([self.data_logs, new_log], ignore_index=True)
 
-        self.data_logs.to_csv(os.path.join(custom_config["SAVING_DIR"], "logs.csv"))
+        # Save round logs
+        self.save_round_logs()
 
+        # Check for best model
         if acc_aggregated > self.best_acc:
             self.best_acc = acc_aggregated
-            print("Current best ACC is = ", acc_aggregated)
-            self.save_server_model(self.round_model, server_round, True)
+            print(f"New best accuracy: {acc_aggregated:.4f}")
+            self.save_server_model(self.round_model, server_round, is_best=True)
 
-        metrics_aggregated = {"acc": acc_aggregated}
-
-
-
-
-
+        # Update phase for next round
         self.current_phase = self.phase_schedule(self.current_phase, server_round)
-        return loss_aggregated, metrics_aggregated
+
+        return loss_aggregated, {"acc": acc_aggregated}
+
+    def save_round_logs(self) -> None:
+        """Save round logs to CSV file."""
+        new_log = {
+            "TRAINING_LOSS": [self.round_log[0]],
+            "TRAINING_ACC": [self.round_log[1]],
+            "FORGET_LOSS": [self.round_log[2]],
+            "FORGET_ACC": [self.round_log[3]],
+            "VAL_LOSS": [self.round_log[4]],
+            "VAL_ACC": [self.round_log[5]]
+        }
+
+        new_df = pd.DataFrame(new_log)
+        self.data_logs = pd.concat([self.data_logs, new_df], ignore_index=True)
+        self.data_logs.to_csv(os.path.join(custom_config["SAVING_DIR"], "logs.csv"))
 
     def evaluate(
-        self, server_round: int, parameters: Parameters
+            self, server_round: int, parameters: Parameters
     ) -> Optional[Tuple[float, Dict[str, Scalar]]]:
         """Evaluate global model parameters using an evaluation function."""
-
-        # Let's assume we won't perform the global model evaluation on the server side.
+        # No server-side evaluation
         return None
 
     def num_fit_clients(self, num_available_clients: int) -> Tuple[int, int]:
-        """Return sample size and required number of clients."""
+        """Calculate number of clients to use for training."""
         num_clients = int(num_available_clients * self.fraction_fit)
         return max(num_clients, self.min_fit_clients), self.min_available_clients
 
     def num_evaluation_clients(self, num_available_clients: int) -> Tuple[int, int]:
-        """Use a fraction of available clients for evaluation."""
+        """Calculate number of clients to use for evaluation."""
         num_clients = int(num_available_clients * self.fraction_evaluate)
         return max(num_clients, self.min_evaluate_clients), self.min_available_clients
 
-    def save_server_model(self, params, server_round, is_best=False):
-        model = get_model(custom_config["MODEL"])
-        if params is not None:
-            print(f"Saving round {server_round} aggregated_parameters...")
+    def save_server_model(self, params: Parameters, server_round: int, is_best: bool = False) -> None:
+        """Save the current server model."""
+        if params is None:
+            return
 
-            # Convert `Parameters` to `list[np.ndarray]`
-            params: list[np.ndarray] = fl.common.parameters_to_ndarrays(
-                params
-            )
-        params_dict = zip(model.state_dict().keys(), [torch.tensor(v) for v in params])
-        state_dict = OrderedDict({k: v for k, v in params_dict})
+        print(f"Saving round {server_round} model{' (best)' if is_best else ''}...")
+
+        # Convert parameters to model state dict
+        model = get_model(custom_config["MODEL"])
+        param_list = parameters_to_ndarrays(params)
+        state_dict = OrderedDict({
+            k: torch.tensor(v)
+            for k, v in zip(model.state_dict().keys(), param_list)
+        })
+
+        # Load parameters and save model
         model.load_state_dict(state_dict, strict=True)
         save_model(model, custom_config, server_round, is_best=is_best)
 
 
 def get_parameters(net) -> List[np.ndarray]:
+    """Extract model parameters as NumPy arrays."""
     return [val.cpu().numpy() for _, val in net.state_dict().items()]
 
-def server_fn(context: Context):
+
+def server_fn(context: Context) -> ServerAppComponents:
+    """Server factory function."""
     global custom_config
+
+    # Setup configuration
     custom_config = setup(sys.argv[1])
     manual_seed(int(custom_config["SEED"]))
     print(custom_config)
-    os.environ['CUDA_LAUNCH_BLOCKING']="1"
-    os.environ['TORCH_USE_CUDA_DSA'] = "1"
-    # Read from config
+
+    # Configure server
     num_rounds = int(custom_config.get("NUM_ROUNDS"))
     min_clients = int(custom_config.get("MIN_CLIENTS"))
     starting_phase = custom_config.get("STARTING_PHASE")
 
+    # Get initial model parameters
     ndarrays = get_parameters(custom_config["LOADED_MODEL"])
     parameters = ndarrays_to_parameters(ndarrays)
-    
 
-
+    # Create strategy
     strategy = FedCustom(
         starting_phase=starting_phase,
         fraction_fit=1.0,
@@ -359,9 +378,13 @@ def server_fn(context: Context):
         initial_parameters=parameters,
     )
     strategy.lr = float(custom_config["LR"])
+
+    # Create server configuration
     config = ServerConfig(num_rounds=num_rounds)
-    print("server configured")
+    print("Server configured")
 
     return ServerAppComponents(strategy=strategy, config=config)
 
+
+# Create the server application
 app = ServerApp(server_fn=server_fn)

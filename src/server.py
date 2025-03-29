@@ -28,6 +28,7 @@ from flwr.server.strategy.aggregate import aggregate, weighted_loss_avg
 
 from .utils.utils import load_custom_config, setup, manual_seed, save_model
 from .utils.models import get_model
+from .utils.lr_scheduler import FederatedScheduler
 
 # Configure CUDA
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
@@ -46,6 +47,7 @@ class FedCustom(FedAvg):
             min_available_clients: int = 2,
             initial_parameters: Optional[Parameters] = None,
             starting_phase: str = "LEARN",
+            scheduler: Optional[FederatedScheduler] = None
     ) -> None:
         """Initialize the FedCustom strategy.
 
@@ -71,7 +73,7 @@ class FedCustom(FedAvg):
         self.best_acc = 0
         self.round_model = None
         self.lr = 0.01  # Default value, will be overridden
-
+        self.lr_scheduler = scheduler
         # Initialize logging
         self.round_log = [0, 0, 0, 0, 0, 0]
         self.data_logs = pd.DataFrame(
@@ -102,9 +104,12 @@ class FedCustom(FedAvg):
         print(f"{len(clients)} clients selected for training")
 
         # Update learning rate if needed
-        if (server_round in custom_config["LR_ROUND"]) and self.lr > 0.0001:
-            self.lr *= float(custom_config["LR_DECAY_RATE"])
-            print(f"UPDATING LEARNING RATE TO {self.lr}")
+        # if (server_round in custom_config["LR_ROUND"]) and self.lr > 0.0001:
+        #     self.lr *= float(custom_config["LR_DECAY_RATE"])
+        #     print(f"UPDATING LEARNING RATE TO {self.lr}")
+
+        self.lr = self.lr_scheduler.current_lr()
+        self.lr_scheduler.update_after_round()
 
         # Create base configuration
         standard_config = {
@@ -376,6 +381,7 @@ def server_fn(context: Context) -> ServerAppComponents:
         min_evaluate_clients=min_clients,
         min_available_clients=min_clients,
         initial_parameters=parameters,
+        scheduler=FederatedScheduler(),
     )
     strategy.lr = float(custom_config["LR"])
 

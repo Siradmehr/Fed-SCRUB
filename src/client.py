@@ -1,58 +1,45 @@
 import os
-
-os.environ['CUDA_LAUNCH_BLOCKING']="1"
-os.environ['TORCH_USE_CUDA_DSA'] = "1"
-from torch import nn
-import flwr as fl
-import numpy as np
-from collections import OrderedDict
 import torch
-from dotenv import load_dotenv, dotenv_values
-import os
+import numpy as np
+import torch.nn as nn
+import torch.nn.functional as F
 from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple
 
-import numpy as np
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torchvision.transforms as transforms
-from torch.utils.data import DataLoader
-from .utils.metrics import compute_mia_score
-from .dataloaders.client_dataloader import load_datasets, load_datasets_with_forgetting
+import flwr as fl
+from flwr.client import Client, NumPyClient
+from flwr.common import NDArrays, Scalar, Context
 
-import flwr
-from flwr.client import Client, ClientApp, NumPyClient
-from flwr.server import ServerApp, ServerConfig, ServerAppComponents
-from flwr.server.strategy import FedAvg, FedAdagrad
-from flwr.simulation import run_simulation
-from flwr_datasets import FederatedDataset
-from flwr.common import ndarrays_to_parameters, NDArrays, Scalar, Context
-from .utils.losses import KL,JS,X2, get_losses
+from .utils.eval import compute_mia_score
+from .utils.losses import get_losses
 from .utils.utils import load_custom_config, load_initial_model, get_gpu, manual_seed
 from .utils.models import get_model
+from .dataloaders.client_dataloader import load_datasets_with_forgetting
+from .utils.eval import _calculate_metrics, _eval_mode
+# Set CUDA environment variables early
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+os.environ['TORCH_USE_CUDA_DSA'] = "1"
 
-
+# Load configuration once
 custom_config = load_custom_config()
+DEVICE = torch.device(custom_config["DEVICE"] if torch.cuda.is_available() else "cpu")
 
-DEVICE = torch.device(custom_config["DEVICE"])  # Try "cuda" to train on GPU
 
-class FlowerClient(fl.client.NumPyClient):
+class FlowerClient(NumPyClient):
     def __init__(self, net, partition_id, trainloader, valloader, forget_loader, test_loader):
-
         self.net = net
         self.partition_id = partition_id
         self.train_loader = trainloader
         self.valloader = valloader
         self.forgetloader = forget_loader
         self.testloader = test_loader
-        self.custom_config = load_custom_config()
-        self.device = torch.device(self.custom_config["DEVICE"] if torch.cuda.is_available() else "cpu")
+        self.custom_config = custom_config  # Use the global config
+        self.device = DEVICE
         self.net.to(self.device)
         self.best_acc = 0
-        print("gpu in client")
+        self.teacher_model = None
+        print(f"Client {partition_id} initialized on device: {self.device}")
         get_gpu()
-
 
     def get_parameters(self) -> List[np.ndarray]:
         print(f"[Client {self.partition_id}] get_parameters")
@@ -60,279 +47,306 @@ class FlowerClient(fl.client.NumPyClient):
 
     def set_parameters(self, parameters: List[np.ndarray]) -> None:
         print(f"[Client {self.partition_id}] set_parameters")
-        # Set net parameters from a list of numpy arrays
         params_dict = zip(self.net.state_dict().keys(), parameters)
         state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
-        print("before loading model statdict")
         self.net.load_state_dict(state_dict)
-        print("after loading model statdict")
 
-
-
-
-    def model_train(self, trainloader, forgetloader, config):
-        phase = config.get("Phase")  # Default to "LEARN"
-        epochs = config.get("local_epochs")  # Default to 1 epoch
+    def _setup_training(self, config):
+        """Set up common training components"""
         lr = config.get("lr")
-        print("training started")
-
         num_classes = int(self.custom_config.get("NUM_CLASSES"))
-        T = float(self.custom_config.get("KD_T", 2.0))  # Temperature for soft distillation
+        T = float(self.custom_config.get("KD_T", 2.0))
+
+        # Get loss functions based on configuration
         loss_type_cls = self.custom_config.get("LOSSCLS", "CE")
         loss_type_div = self.custom_config.get("LOSSDIV", "KL")
         loss_type_kd = self.custom_config.get("LOSSKD", "KL")
 
         criterion_cls = get_losses(loss_type_cls, num_classes, T)
         criterion_div = get_losses(loss_type_div, num_classes, T)
-        criterion_div_min = get_losses(loss_type_kd, num_classes, T)  # Used for MAXIMIZE phase
+        criterion_div_min = get_losses(loss_type_kd, num_classes, T)
 
         optimizer = torch.optim.SGD(self.net.parameters(), lr=lr, momentum=0.9)
-        self.net.train()
-        total_loss = 0.0
-        total_correct = 0
-        total_samples = 0
 
         # Hyperparameters
-        alpha = float(self.custom_config.get("ALPHA"))
-        beta = float(self.custom_config.get("BETA"))     # Optional for KD loss
-        gamma = float(self.custom_config.get("GAMMA"))
+        alpha = float(self.custom_config.get("ALPHA", 0.5))
+        beta = float(self.custom_config.get("BETA", 0.5))
+        gamma = float(self.custom_config.get("GAMMA", 0.5))
 
+        return (criterion_cls, criterion_div, criterion_div_min,
+                optimizer, alpha, beta, gamma)
+
+    def _train_learn_phase(self, trainloader, epochs, criterion_cls, optimizer):
+        """Train model in LEARN phase"""
+        total_loss, total_correct, total_samples = 0.0, 0, 0
+
+        print(f"LEARN phase: {epochs} epochs over {len(trainloader)} batches")
+        for epoch in range(epochs):
+            for batch_data in trainloader:
+                images = batch_data["img"].to(self.device)
+                labels = batch_data["label"].to(self.device)
+
+                optimizer.zero_grad()
+                outputs = self.net(images)
+                loss = criterion_cls(outputs, labels)
+                loss.backward()
+                nn.utils.clip_grad_value_(self.net.parameters(), clip_value=0.5)
+                optimizer.step()
+
+                # Track metrics
+                with torch.no_grad():
+                    total_loss += loss.item() * images.size(0)
+                    preds = outputs.argmax(dim=1)
+                    total_correct += (preds == labels).sum().item()
+                    total_samples += images.size(0)
+
+        metrics = _calculate_metrics(total_loss, total_correct, total_samples)
+        return metrics, total_samples
+
+    def _train_max_phase(self, forgetloader, max_epochs, criterion_div_min, optimizer):
+        """Train model in MAX phase to maximize divergence on forgotten data"""
+        total_loss, total_correct, total_samples = 0.0, 0, 0
+
+        if not self.teacher_model:
+            raise ValueError("Teacher model not found. Run LEARN phase first.")
+
+        print(f"MAX phase: {max_epochs} epochs over {len(forgetloader)} batches")
+        self.teacher_model.eval()
+
+        for epoch in range(max_epochs):
+            for batch_data in forgetloader:
+                images = batch_data["img"].to(self.device)
+                labels = batch_data["label"].to(self.device)
+
+                optimizer.zero_grad()
+
+                with torch.no_grad():
+                    teacher_outputs = self.teacher_model(images)
+                    teacher_probs = F.softmax(teacher_outputs, dim=1)
+
+                student_outputs = self.net(images)
+                # Negative loss to maximize divergence
+                loss = -criterion_div_min(student_outputs, teacher_probs)
+                loss.backward()
+                optimizer.step()
+
+                # Track metrics
+                with torch.no_grad():
+                    total_loss += loss.item() * images.size(0)
+                    preds = student_outputs.argmax(dim=1)
+                    total_correct += (preds == labels).sum().item()
+                    total_samples += images.size(0)
+
+        metrics = _calculate_metrics(total_loss, total_correct, total_samples)
+        return metrics, total_samples
+
+    def _train_min_phase(self, trainloader, forgetloader, min_epochs,
+                         criterion_cls, criterion_div, optimizer, gamma, alpha, unlearn_con):
+        """Train model in MIN phase to minimize divergence on retain data"""
+        total_loss, total_correct, total_samples = 0.0, 0, 0
+        forget_loss, forget_correct, forget_samples = 0.0, 0, 0
+
+        if not self.teacher_model:
+            raise ValueError("Teacher model not found. Run LEARN phase first.")
+
+        self.teacher_model.eval()
+
+        # Process retain data
+        if trainloader and len(trainloader) > 0:
+            print(f"MIN phase (retain): {min_epochs} epochs over {len(trainloader)} batches")
+            total_loss, total_correct, total_samples = self._process_min_data(
+                trainloader, min_epochs, criterion_cls, criterion_div,
+                optimizer, gamma, alpha
+            )
+
+        # Process forget data if not using contrastive unlearning
+        if unlearn_con != "TRUE" and forgetloader and len(forgetloader) > 0:
+            print(f"MIN phase (forget): {min_epochs} epochs over {len(forgetloader)} batches")
+            forget_loss, forget_correct, forget_samples = self._process_min_data(
+                forgetloader, min_epochs, criterion_cls, criterion_div,
+                optimizer, gamma, alpha
+            )
+            # Combine metrics
+            total_loss += forget_loss
+            total_correct += forget_correct
+            total_samples += forget_samples
+
+        metrics = _calculate_metrics(total_loss, total_correct, total_samples)
+        return metrics, total_samples
+
+    def _process_min_data(self, dataloader, epochs, criterion_cls, criterion_div,
+                          optimizer, gamma, alpha):
+        """Process data for MIN phase"""
+        total_loss, total_correct, total_samples = 0.0, 0, 0
+
+        for epoch in range(epochs):
+            for batch_data in dataloader:
+                images = batch_data["img"].to(self.device)
+                labels = batch_data["label"].to(self.device)
+
+                optimizer.zero_grad()
+
+                with torch.no_grad():
+                    teacher_outputs = self.teacher_model(images)
+                    teacher_probs = F.softmax(teacher_outputs, dim=1)
+
+                student_outputs = self.net(images)
+
+                loss_cls = criterion_cls(student_outputs, labels)
+                loss_div = criterion_div(student_outputs, teacher_probs)
+
+                loss = gamma * loss_cls + alpha * loss_div
+                loss.backward()
+                optimizer.step()
+
+                # Track metrics
+                with torch.no_grad():
+                    total_loss += loss.item() * images.size(0)
+                    preds = student_outputs.argmax(dim=1)
+                    total_correct += (preds == labels).sum().item()
+                    total_samples += images.size(0)
+
+        return total_loss, total_correct, total_samples
+
+
+
+    def model_train(self, trainloader, forgetloader, config):
+        """Train model based on the current phase"""
+        phase = config.get("Phase", "LEARN")
+        epochs = config.get("local_epochs", 1)
+        max_epochs = config.get("max_epochs", 1)
+        min_epochs = config.get("min_epochs", 1)
+
+        print(f"Training started for phase: {phase}")
+
+        # Set up training components
+        criterion_cls, criterion_div, criterion_div_min, optimizer, alpha, beta, gamma = self._setup_training(config)
+
+        self.net.train()
+
+        # Train based on the current phase
         if phase == "LEARN" and trainloader and len(trainloader) > 0:
-            print("number of epochs in LEARN", epochs,  len(trainloader))
-            for eps in range(epochs):
-                for idxs, batch_data in enumerate(trainloader):
-                    images = batch_data["img"]
-                    labels = batch_data["label"]
-                    images, labels = images.to(DEVICE), labels.to(DEVICE)
-                    optimizer.zero_grad()
-                    outputs = self.net(images)
-                    loss = criterion_cls(outputs, labels)
-                    loss.backward()
-                    nn.utils.clip_grad_value_(self.net.parameters(), clip_value=0.5)
-                    optimizer.step()
-                    with torch.no_grad():
-                        total_loss += loss.item() * images.size(0)
-                        preds = outputs.argmax(dim=1)
-                        total_correct += (preds == labels).sum().item()
-                        total_samples += images.size(0)
+            (avg_loss, accuracy), total_samples = self._train_learn_phase(
+                trainloader, epochs, criterion_cls, optimizer
+            )
+            return {"loss": avg_loss, "accuracy": accuracy, "maxloss": 0, "maxacc": 0}, total_samples
 
-            avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
-            accuracy = total_correct / total_samples if total_samples > 0 else 0.0
-            return {"loss": avg_loss, "accuracy": accuracy,
-                    "maxloss": 0, "maxacc": 0}, total_samples
+        elif phase == "MAX" and config.get("UNLEARN_CON") == "TRUE":
+            (avg_loss, accuracy), total_samples = self._train_max_phase(
+                forgetloader, max_epochs, criterion_div_min, optimizer
+            )
+            return {"loss": 0, "accuracy": 0, "maxloss": avg_loss, "maxacc": accuracy}, total_samples
 
-        if phase == "MAX" and config["UNLEARN_CON"] == "TRUE":
-            if not hasattr(self, 'teacher_model'):
-                raise ValueError("Teacher model not found. Run LEARN phase first.")
-            MAX_epochs = config.get("max_epochs")
-            print("number of epochs in MAX", MAX_epochs,  len(forgetloader))
-            teacher = self.teacher_model
-            teacher.eval()
+        elif phase == "MIN":
+            (avg_loss, accuracy), total_samples = self._train_min_phase(
+                trainloader, forgetloader, min_epochs, criterion_cls, criterion_div,
+                optimizer, gamma, alpha, config.get("UNLEARN_CON")
+            )
+            return {"loss": avg_loss, "accuracy": accuracy, "maxloss": 0, "maxacc": 0}, total_samples
 
-
-            for _ in range(MAX_epochs):
-                for idxs, batch_data in enumerate(forgetloader):
-                    images = batch_data["img"]
-                    labels = batch_data["label"]
-                    images, labels = images.to(DEVICE), labels.to(DEVICE)
-                    optimizer.zero_grad()
-                    with torch.no_grad():
-                        teacher_outputs = teacher(images)
-                        teacher_probs = F.softmax(teacher_outputs, dim=1)
-
-                    student_outputs = self.net(images)
-                    loss = -criterion_div_min(student_outputs, teacher_probs)  # Maximize divergence
-                    loss.backward()
-                    optimizer.step()
-
-                    with torch.no_grad():
-                        total_loss += loss.item() * images.size(0)
-                        preds = student_outputs.argmax(dim=1)
-                        total_correct += (preds == labels).sum().item()
-                        total_samples += images.size(0)
-            avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
-            accuracy = total_correct / total_samples if total_samples > 0 else 0.0
-            return {"loss": 0, "accuracy": 0, "maxloss": avg_loss, "maxacc":accuracy}, total_samples
-
-        if phase == "MIN":
-            if not hasattr(self, 'teacher_model'):
-                raise ValueError("Teacher model not found. Run LEARN phase first.")
-            teacher = self.teacher_model
-            teacher.eval()
-
-            MIN_epochs = config.get("min_epochs")
-            if trainloader and len(trainloader) > 0:
-                print("number of epochs in MIN train ", MIN_epochs, len(trainloader))
-                for _ in range(MIN_epochs):
-                    for idxs, batch_data in enumerate(trainloader):
-                        images = batch_data["img"]
-                        labels = batch_data["label"]
-                        images, labels = images.to(DEVICE), labels.to(DEVICE)
-                        optimizer.zero_grad()
-
-                        with torch.no_grad():
-                            teacher_outputs = teacher(images)
-                            teacher_probs = F.softmax(teacher_outputs, dim=1)
-
-                        student_outputs = self.net(images)
-
-                        loss_cls = criterion_cls(student_outputs, labels)
-                        loss_div = criterion_div(student_outputs, teacher_probs)
-
-                        loss = gamma * loss_cls + alpha * loss_div
-                        loss.backward()
-                        optimizer.step()
-
-                        with torch.no_grad():
-                            total_loss += loss.item() * images.size(0)
-                            preds = student_outputs.argmax(dim=1)
-                            total_correct += (preds == labels).sum().item()
-                            total_samples += images.size(0)
-            if config["UNLEARN_CON"] != "TRUE" and forgetloader and len(forgetloader) > 0:
-                print("number of epochs in MIN forget ", MIN_epochs, len(forgetloader))
-                for _ in range(MIN_epochs):
-                    for idxs, batch_data in enumerate(forgetloader):
-                        images = batch_data["img"]
-                        labels = batch_data["label"]
-                        images, labels = images.to(DEVICE), labels.to(DEVICE)
-                        optimizer.zero_grad()
-
-                        with torch.no_grad():
-                            teacher_outputs = teacher(images)
-                            teacher_probs = F.softmax(teacher_outputs, dim=1)
-
-                        student_outputs = self.net(images)
-
-                        loss_cls = criterion_cls(student_outputs, labels)
-                        loss_div = criterion_div(student_outputs, teacher_probs)
-
-                        loss = gamma * loss_cls + alpha * loss_div
-                        loss.backward()
-                        optimizer.step()
-
-                        with torch.no_grad():
-                            total_loss += loss.item() * images.size(0)
-                            preds = student_outputs.argmax(dim=1)
-                            total_correct += (preds == labels).sum().item()
-                            total_samples += images.size(0)
-            avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
-            accuracy = total_correct / total_samples if total_samples > 0 else 0.0
-            return {"loss": avg_loss, "accuracy": accuracy,
-                    "maxloss": 0, "maxacc": 0}, total_samples
-
-
-
-        return {"loss": 0, "accuracy": 0,
-                    "maxloss": 0, "maxacc": 0}, 0
-
-
-
-
-    def model_eval(self) -> Dict:
-        """Evaluate the model on a given data loader."""
-        criterion = nn.CrossEntropyLoss()
-        self.net.eval()
-        total_loss = 0.0
-        total_correct = 0
-        total_samples = 0
-        with torch.no_grad():
-            for idxs, batch_data in enumerate(self.valloader):
-                images = batch_data["img"]
-                labels = batch_data["label"]
-                images, labels = images.to(DEVICE), labels.to(DEVICE)
-                outputs = self.net(images)
-                loss = criterion(outputs, labels)
-                total_loss += loss.item() * images.size(0)
-                preds = outputs.argmax(dim=1)
-                total_correct += (preds == labels).sum().item()
-                total_samples += images.size(0)
-        avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
-        accuracy = total_correct / total_samples if total_samples > 0 else 0.0
-        return avg_loss,accuracy
-
-    def model_eval_with_MIA(self) -> Dict:
-        """Evaluate the model on a given data loader."""
-        criterion = nn.CrossEntropyLoss()
-        self.net.eval()
-        total_loss = 0.0
-        total_correct = 0
-        total_samples = 0
-        with torch.no_grad():
-            for idxs, batch_data in enumerate(self.forgetloader):
-                images = batch_data["img"]
-                labels = batch_data["label"]
-                images, labels = images.to(DEVICE), labels.to(DEVICE)
-                outputs = self.net(images)
-                loss = criterion(outputs, labels)
-                total_loss += loss.item() * images.size(0)
-                preds = outputs.argmax(dim=1)
-                total_correct += (preds == labels).sum().item()
-                total_samples += images.size(0)
-        avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
-        accuracy = total_correct / total_samples if total_samples > 0 else 0.0
-        return avg_loss, accuracy, total_samples,
+        # Default return if no phase matched or no data
+        return {"loss": 0, "accuracy": 0, "maxloss": 0, "maxacc": 0}, 0
 
 
     def fit(self, parameters, config):
         print(f"[Client {self.partition_id}] fit, config: {config}")
         self.set_parameters(parameters)
-        if config["TEACHER"] == "INIT":
-            self.teacher_model = load_initial_model(custom_config['MODEL'], custom_config["RESUME"])
-            self.teacher_model.to(self.device)
-        
-        metrics_dict, size_of_set = self.model_train(self.train_loader, self.forgetloader, config)
-        max_loss,max_acc, max_size = self.model_eval_with_MIA()
 
-        # Include data indices in the metrics returned to server
+        # Initialize teacher model if needed
+        if config.get("TEACHER") == "INIT":
+            self.teacher_model = load_initial_model(
+                self.custom_config['MODEL'],
+                self.custom_config["RESUME"]
+            )
+            self.teacher_model.to(self.device)
+
+        # Train model
+        metrics_dict, size_of_set = self.model_train(
+            self.train_loader,
+            self.forgetloader,
+            config
+        )
+
+        # Collect metrics
         metrics = {
-        "train_loss": metrics_dict["loss"],
-        "train_accuracy": metrics_dict["accuracy"],
-        "max_loss": max_loss,
-        "max_acc": max_acc,
-        "max_size": max_size,
+            "train_loss": metrics_dict["loss"],
+            "train_accuracy": metrics_dict["accuracy"],
         }
-        print(metrics)
-        
-        # Return updated model parameters and number of training examples
+        print(f"Client {self.partition_id} metrics: {metrics}")
+
         return self.get_parameters(), size_of_set, metrics
 
     def evaluate(self, parameters, config):
-        """Evaluate the model on the data this client has."""
+        """Evaluate the model on validation data"""
         self.set_parameters(parameters)
-        loss, accuracy = self.model_eval()
 
-        max_loss, max_acc, max_size = self.model_eval_with_MIA()
+        # Regular evaluation
+        num_classes = int(self.custom_config.get("NUM_CLASSES"))
+        T = float(self.custom_config.get("KD_T", 2.0))
+
+        loss_type_cls = self.custom_config.get("LOSSCLS", "CE")
+        criterion_cls = get_losses(loss_type_cls, num_classes, T)
+
+        loss, accuracy, eval_size = _eval_mode(criterion_cls,
+                                    self.net,
+                                    self.forgetloader,
+                                    self.device)
+
+        # Evaluate on forgotten data
+        max_loss, max_acc, max_size = _eval_mode(criterion_cls,
+                                                            self.net,
+                                                            self.forgetloader,
+                                                            self.device)
+        # Collect metrics
         metrics = {
-            "accuracy": accuracy,
-            "train_loss": loss,
-            "train_accuracy": accuracy,
+            "eval_loss": loss,
+            "eval_acc": accuracy,
+            "eval_size": eval_size,
             "max_loss": max_loss,
             "max_acc": max_acc,
             "max_size": max_size,
         }
-        print(metrics)
+        print(f"Client {self.partition_id} eval metrics: {metrics}")
 
-        return loss, len(self.valloader.dataset), metrics
+        return loss, eval_size, metrics
+
 
 def client_fn(context: Context) -> Client:
-    os.environ['CUDA_LAUNCH_BLOCKING']="1"
+    """Client factory function"""
+    # Set environment variables
+    os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
     os.environ['TORCH_USE_CUDA_DSA'] = "1"
+
+    # Set random seed
     manual_seed(int(custom_config["SEED"]))
 
-
-    # Read the node_config to fetch data partition associated to this node
+    # Get partition information
     partition_id = context.node_config["partition-id"]
     num_partitions = context.node_config["num-partitions"]
-    print(f"Client {partition_id} / {num_partitions}")
-    print("client calling")
-    net = get_model(custom_config["MODEL"])
-    print("client loading model")
+    print(f"Initializing Client {partition_id} / {num_partitions}")
 
-    forget_set_config = {i:0.0 for i in range(int(custom_config["NUM_CLASSES"]))}
+    # Create model
+    net = get_model(custom_config["MODEL"])
+
+    # Set up forget class configuration
+    forget_set_config = {i: 0.0 for i in range(int(custom_config["NUM_CLASSES"]))}
     for key in custom_config["FORGET_CLASS"]:
         forget_set_config[key] = custom_config["FORGET_CLASS"][key]
 
+    # Load datasets
+    retrainloader, forgetloader, valloader, testloader = load_datasets_with_forgetting(
+        partition_id,
+        num_partitions,
+        dataset_name=custom_config["DATASET"],
+        forgetting_config=forget_set_config
+    )
 
-    retrainloader, forgetloader, valloader, testloader = load_datasets_with_forgetting(partition_id, num_partitions\
-    , dataset_name=custom_config["DATASET"], forgetting_config=forget_set_config)
-    return FlowerClient(net, partition_id, retrainloader, valloader, forgetloader, testloader).to_client()
+    # Create and return client
+    return FlowerClient(
+        net,
+        partition_id,
+        retrainloader,
+        valloader,
+        forgetloader,
+        testloader
+    ).to_client()

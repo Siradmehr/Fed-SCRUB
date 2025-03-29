@@ -4,6 +4,39 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import accuracy_score
+
+
+def _calculate_metrics(total_loss, total_correct, total_samples):
+    """Calculate average metrics"""
+    avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
+    accuracy = total_correct / total_samples if total_samples > 0 else 0.0
+    return avg_loss, accuracy
+
+def _eval_mode(loss, net, loader, device):
+    """Evaluate model on forgotten data for MIA analysis"""
+    criterion = loss
+    net.eval()
+    total_loss, total_correct, total_samples = 0.0, 0, 0
+
+    with torch.no_grad():
+        for batch_data in loader:
+            images = batch_data["img"].to(device)
+            labels = batch_data["label"].to(device)
+
+            outputs = net(images)
+            loss = criterion(outputs, labels)
+
+            total_loss += loss.item() * images.size(0)
+            preds = outputs.argmax(dim=1)
+            total_correct += (preds == labels).sum().item()
+            total_samples += images.size(0)
+
+    avg_loss, accuracy = _calculate_metrics(total_loss, total_correct, total_samples)
+    return avg_loss, accuracy, total_samples
+
+
+
+
 def get_loss_dataset(net, model, dataloader, label, device):
     net.eval()
     loss_values = []

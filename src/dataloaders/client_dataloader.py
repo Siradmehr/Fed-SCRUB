@@ -135,7 +135,7 @@ def load_datasets_with_forgetting(
     random.seed(seed)
 
     # Split the indices for each class
-    train_indices, val_indices, test_indices = [], [], []
+    train_indices, val_indices = [], []
     for label, indices in label_to_indices.items():
         # Shuffle indices for each class
         random.shuffle(indices)
@@ -212,7 +212,7 @@ def load_datasets_with_forgetting(
                   retrain_index=retrain_indices,
                   forget_index=forget_indices,
                   val_index=val_indices,
-                  test_index=test_indices,
+                  test_index=test_index,
                   config=custom_config,
                   partition_id=partition_id)
 

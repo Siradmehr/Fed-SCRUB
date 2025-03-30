@@ -20,8 +20,9 @@ def _eval_mode(loss, net, loader, device):
 
     with torch.no_grad():
         for batch_data in loader:
-            images = batch_data["img"].to(device)
-            labels = batch_data["label"].to(device)
+            images, labels = batch_data
+            images = images.to(self.device)
+            labels = labels.to(self.device)
 
             outputs = net(images)
             loss = criterion(outputs, labels)

@@ -76,7 +76,85 @@ def load_config(path: str = "./envs") -> Dict:
     return config
 
 
-def setup_experiment(path: str = "./envs") -> Dict:
+def np_index_save(full_training_index, training_set, retrain_index, forget_index, val_index, test_index, config, partition_id) -> None:
+    """Save dataset partition indexes as numpy arrays in an npz file.
+
+    Args:
+        full_training_index: Complete training dataset indexes
+        forget_index: Indexes of samples to be forgotten
+        val_index: Validation dataset indexes
+        test_index: Test dataset indexes
+        retrain_index: Retrain dataset indexes
+        config: Configuration dictionary containing saving directory
+    """
+    # Create directory if it doesn't exist
+    save_path = os.path.join(config["SAVING_DIR"], "partition_indexes")
+    os.makedirs(save_path, exist_ok=True)
+
+    # Create the full path for the npz file
+    file_path = os.path.join(save_path, f"{partition_id}_dataset_partitions.npz")
+
+    # Save all indexes in a single npz file
+    np.savez(
+        file_path,
+        training_set=training_set,
+        full_training=full_training_index,
+        forget=forget_index,
+        val=val_index,
+        test=test_index,
+        retrain=retrain_index
+    )
+
+    print(f"Dataset partition indexes saved to {file_path}")
+
+def np_index_load(config, partition_id=None) -> tuple:
+        """Load dataset partition indexes from an npz file.
+
+        Args:
+            config: Configuration dictionary containing saving directory
+            partition_id: Optional partition ID. If None, loads without partition ID in filename
+
+        Returns:
+            Tuple containing (dictionary of indexes, full_training_index, forget_index, 
+                             val_index, test_index, retrain_index)
+        """
+        # Construct the path to the partition_indexes directory
+        save_path = os.path.join(config["SAVING_DIR"], "partition_indexes")
+
+        # Check if directory exists
+        if not os.path.exists(save_path):
+            raise FileNotFoundError(f"Directory not found: {save_path}")
+
+        # Construct the filename based on whether partition_id is provided
+        if partition_id is not None:
+            file_path = os.path.join(save_path, f"{partition_id}_dataset_partitions.npz")
+        else:
+            file_path = os.path.join(save_path, "dataset_partitions.npz")
+
+        # Check if file exists
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        # Load the npz file
+        loaded_data = np.load(file_path)
+
+        # Create the dictionary
+        indexes_dict = {
+            "training_set": loaded_data["training_set"],
+            "full_training_index": loaded_data["full_training"],
+            "forget_index": loaded_data["forget"],
+            "val_index": loaded_data["val"],
+            "test_index": loaded_data["test"],
+            "retrain_index": loaded_data["retrain"]
+        }
+
+        print(f"Dataset partition indexes loaded from {file_path}")
+
+        # Return both dictionary and individual arrays
+        return indexes_dict
+
+
+def setup_experiment(path: str = "./envs", load_model_flag = True) -> Dict:
     """Set up the experiment with configuration, directories, and model."""
     # Load configuration
     config = load_config(path)
@@ -94,6 +172,9 @@ def setup_experiment(path: str = "./envs") -> Dict:
 
     # Save configuration
     config_path = os.path.join(saving_directory, "custom_config.json")
+    config["CUSTOM_CONFIG_PATH"] = saving_directory
+    if not load_model_flag:
+        return config
     with open(config_path, "w") as f:
         json.dump(config, f, indent=4)
 
@@ -153,7 +234,8 @@ def save_model(
     if is_best:
         filename = os.path.join(save_dir, "model_best.pth")
     elif round is not None:
-        filename = os.path.join(save_dir, f"model_round_{round}.pth")
+        #filename = os.path.join(save_dir, f"model_round_{round}.pth")
+        filename = os.path.join(save_dir, "model_latest.pth")
     else:
         filename = os.path.join(save_dir, "model_latest.pth")
 

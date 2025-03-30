@@ -12,7 +12,7 @@ from flwr.common import NDArrays, Scalar, Context
 
 from .utils.eval import compute_mia_score
 from .utils.losses import get_losses
-from .utils.utils import load_config, load_model, set_seed, get_device
+from .utils.utils import load_config, load_model, set_seed, get_device, setup_experiment
 from .utils.models import get_model
 from .dataloaders.client_dataloader import load_datasets_with_forgetting
 from .utils.eval import _calculate_metrics, _eval_mode
@@ -82,8 +82,9 @@ class FlowerClient(NumPyClient):
         print(f"LEARN phase: {epochs} epochs over {len(trainloader)} batches")
         for epoch in range(epochs):
             for batch_data in trainloader:
-                images = batch_data["img"].to(self.device)
-                labels = batch_data["label"].to(self.device)
+                images, labels = batch_data
+                images = images.to(self.device)
+                labels = labels.to(self.device)
 
                 optimizer.zero_grad()
                 outputs = self.net(images)
@@ -114,8 +115,10 @@ class FlowerClient(NumPyClient):
 
         for epoch in range(max_epochs):
             for batch_data in forgetloader:
-                images = batch_data["img"].to(self.device)
-                labels = batch_data["label"].to(self.device)
+                images, labels = batch_data
+                images = images.to(self.device)
+                labels = labels.to(self.device)
+
 
                 optimizer.zero_grad()
 
@@ -180,8 +183,10 @@ class FlowerClient(NumPyClient):
 
         for epoch in range(epochs):
             for batch_data in dataloader:
-                images = batch_data["img"].to(self.device)
-                labels = batch_data["label"].to(self.device)
+                images, labels = batch_data
+                images = images.to(self.device)
+                labels = labels.to(self.device)
+
 
                 optimizer.zero_grad()
 
@@ -317,6 +322,7 @@ def client_fn(context: Context) -> Client:
     os.environ['TORCH_USE_CUDA_DSA'] = "1"
 
     # Set random seed
+    custom_config = setup_experiment(load_model_flag=False)
     set_seed(int(custom_config["SEED"]))
 
     # Get partition information

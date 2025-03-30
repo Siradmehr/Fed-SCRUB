@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader, Subset
 from typing import Dict, Tuple, Optional
 from collections import defaultdict
 import random
-from ..utils.utils import load_config as load_custom_config
+from ..utils.utils import load_config as load_custom_config, setup_experiment
 
 # Define transforms once outside the function
 pytorch_transforms = transforms.Compose([
@@ -13,6 +13,7 @@ pytorch_transforms = transforms.Compose([
     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
 ])
 
+from ..utils.utils import set_seed
 
 def apply_transforms(batch):
     batch["img"] = [pytorch_transforms(img) for img in batch["img"]]
@@ -22,35 +23,9 @@ def apply_transforms(batch):
 import random
 from torch.utils.data import Subset
 from torchvision import datasets, transforms
+from ..utils.utils import np_index_save
 
-
-def configure_balanced_partition(root: str, dataset_name: str, partition_id: int, num_partitions: int, seed: int,
-                                 shuffle: bool) -> Subset:
-    """
-    Load a dataset and partition it so that each partition gets the same number of samples per label.
-
-    Args:
-        root (str): Path to dataset storage.
-        dataset_name (str): Name of the dataset (currently only "CIFAR10" is supported).
-        partition_id (int): The partition index (0 to num_partitions - 1).
-        num_partitions (int): Total number of partitions.
-        seed (int): Random seed for reproducibility.
-        shuffle (bool): Whether to shuffle indices within each label partition.
-
-    Returns:
-        Subset: A PyTorch Subset containing the balanced partition of data.
-    """
-    # Load dataset
-    if dataset_name.lower() == "cifar10":
-        dataset = datasets.CIFAR10(root=root, train=False, download=True, transform=transforms.ToTensor())
-    else:
-        raise ValueError("Unsupported dataset")
-
-    # Validate partition_id
-    if not (0 <= partition_id < num_partitions):
-        raise ValueError(f"partition_id must be between 0 and {num_partitions - 1}")
-
-    # Group indices by label (CIFAR10 labels are in dataset.targets)
+def _partition_dataset(dataset, num_partitions, partition_id, shuffle):
     label_to_indices = {}
     for idx, label in enumerate(dataset.targets):
         label_to_indices.setdefault(label, []).append(idx)
@@ -60,9 +35,6 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
     # For each label, shuffle and evenly split indices
     for label, indices in label_to_indices.items():
         # Set the seed for reproducibility, then shuffle the indices for this label.
-        random.seed(seed)
-        random.shuffle(indices)
-
         # Determine the size of each partition for this label.
         base_size = len(indices) // num_partitions
         extra = len(indices) % num_partitions  # Some partitions may get one extra sample
@@ -87,7 +59,46 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
 
     print(
         f"Balanced partition {partition_id} loaded with {len(partition_indices)} samples (each label equally represented)")
-    return Subset(dataset, partition_indices)
+    return Subset(dataset, partition_indices), partition_indices
+
+
+def configure_balanced_partition(root: str, dataset_name: str, partition_id: int, num_partitions: int, seed: int,
+                                 shuffle: bool) -> Subset:
+    """
+    Load a dataset and partition it so that each partition gets the same number of samples per label.
+
+    Args:
+        root (str): Path to dataset storage.
+        dataset_name (str): Name of the dataset (currently only "CIFAR10" is supported).
+        partition_id (int): The partition index (0 to num_partitions - 1).
+        num_partitions (int): Total number of partitions.
+        seed (int): Random seed for reproducibility.
+        shuffle (bool): Whether to shuffle indices within each label partition.
+
+    Returns:
+        Subset: A PyTorch Subset containing the balanced partition of data.
+    """
+    # Load dataset
+    if dataset_name.lower() == "cifar10":
+        dataset = datasets.CIFAR10(root=root, train=True, download=True, transform=transforms.ToTensor())
+        test_dataset = datasets.CIFAR10(root=root, train=False, download=True, transform=transforms.ToTensor())
+    elif dataset_name.lower() == "mnist":
+        dataset = datasets.MNIST(root=root, train=True, download=True, transform=transforms.ToTensor())
+        test_dataset = datasets.MNIST(root=root, train=False, download=True, transform=transforms.ToTensor())
+    elif dataset_name.lower() == "fashionmnist":
+        dataset = datasets.FashionMNIST(root=root, train=True, download=True, transform=transforms.ToTensor())
+        test_dataset = datasets.FashionMNIST(root=root, train=False, download=True, transform=transforms.ToTensor())
+    else:
+        raise ValueError("Unsupported dataset")
+
+    # Validate partition_id
+    if not (0 <= partition_id < num_partitions):
+        raise ValueError(f"partition_id must be between 0 and {num_partitions - 1}")
+
+    set_seed(seed)
+    trainin_set, full_training_index = _partition_dataset(dataset, num_partitions, partition_id, shuffle)
+    test_set, test_index = _partition_dataset(test_dataset, num_partitions, partition_id, shuffle)
+    return trainin_set, full_training_index, test_set, test_index
 
 from torch.utils.data import Subset
 from collections import defaultdict
@@ -106,9 +117,9 @@ def load_datasets_with_forgetting(
     """
     Load and partition datasets with forgetting functionality and print class distributions.
     """
-    custom_config = load_custom_config()
+    custom_config = setup_experiment(load_model_flag=False)
 
-    partition = configure_balanced_partition(root="./data",
+    partition, full_training_index, test_set, test_index = configure_balanced_partition(root="./data",
                                              dataset_name=dataset_name,
                                              partition_id=partition_id,
                                              num_partitions=num_partitions,
@@ -131,18 +142,16 @@ def load_datasets_with_forgetting(
 
         # Split the indices: 80% train, 10% val, 10% test
         total_size = len(indices)
-        train_size = int(0.8 * total_size)
+        train_size = int(0.9 * total_size)
         val_size = int(0.1 * total_size)
-        test_size = total_size - train_size - val_size
 
         train_indices.extend(indices[:train_size])
         val_indices.extend(indices[train_size:train_size + val_size])
-        test_indices.extend(indices[train_size + val_size:])
 
     # Create Subsets for train, val, and test
     train_data = Subset(partition, train_indices)
     val_data = Subset(partition, val_indices)
-    test_data = Subset(partition, test_indices)
+    test_data = test_set
 
     # Compute class distributions
     def compute_class_distribution(dataset):
@@ -197,5 +206,15 @@ def load_datasets_with_forgetting(
     forgetloader = DataLoader(forgetset, batch_size=forget_batch, shuffle=True) if len(forgetset) > 0 else None
     valloader = DataLoader(val_data, batch_size=val_batch, shuffle=True)
     testloader = DataLoader(test_data, batch_size=test_batch, shuffle=True)
+
+    np_index_save(full_training_index=full_training_index,
+                  training_set=train_indices,
+                  retrain_index=retrain_indices,
+                  forget_index=forget_indices,
+                  val_index=val_indices,
+                  test_index=test_indices,
+                  config=custom_config,
+                  partition_id=partition_id)
+
 
     return retrainloader, forgetloader, valloader, testloader

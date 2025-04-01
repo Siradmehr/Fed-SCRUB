@@ -218,3 +218,46 @@ def load_datasets_with_forgetting(
 
 
     return retrainloader, forgetloader, valloader, testloader
+
+from torch.utils.data import DataLoader, ConcatDataset, Dataset, Subset
+# Custom dataset to add is_member labels
+class MembershipDataset(Dataset):
+    def __init__(self, dataset, is_member):
+        self.dataset = dataset
+        self.is_member = is_member
+    
+    def __len__(self):
+        return len(self.dataset)
+    
+    def __getitem__(self, idx):
+        X, y = self.dataset[idx]
+        return X, y, self.is_member
+# Create attack_loader and shadow_loader
+def create_attack_and_shadow_loaders(forgetloader, testloader, valloader, batch_size=64):
+    """
+    Create attack_loader and shadow_loader for Shokri and Yeom attacks using federated dataloaders.
+    
+    Args:
+        forgetloader (DataLoader): DataLoader for the forget set (members).
+        testloader (DataLoader): DataLoader for the test set (non-members).
+        valloader (DataLoader): DataLoader for the validation set (used for shadow data).
+        batch_size (int): Batch size for the new DataLoaders.
+    
+    Returns:
+        attack_loader (DataLoader): Combined DataLoader with forget (members) and test (non-members) data.
+        shadow_loader (DataLoader): DataLoader for shadow data (used by Shokri attack).
+    """
+    # Create datasets with membership labels
+    forget_dataset_with_membership = MembershipDataset(forgetloader.dataset, is_member=1)
+    test_dataset_with_membership = MembershipDataset(testloader.dataset, is_member=0)
+    
+    # Combine forget and test datasets
+    combined_dataset = ConcatDataset([forget_dataset_with_membership, test_dataset_with_membership])
+    
+    # Create attack_loader
+    attack_loader = DataLoader(combined_dataset, batch_size=batch_size, shuffle=False)
+    
+    # Create shadow_loader using validation set
+    shadow_loader = DataLoader(valloader.dataset, batch_size=batch_size, shuffle=True)
+    
+    return attack_loader, shadow_loader

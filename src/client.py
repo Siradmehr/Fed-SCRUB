@@ -275,6 +275,12 @@ class FlowerClient(NumPyClient):
         metrics = {
             "train_loss": metrics_dict["loss"],
             "train_accuracy": metrics_dict["accuracy"],
+                "eval_loss": 0,
+                "eval_acc": 0,
+                "eval_size": 7,
+                "max_loss": 0,
+                "max_acc": 0,
+                "max_size": 7,
         }
         print(f"Client {self.partition_id} metrics: {metrics}")
 
@@ -303,6 +309,7 @@ class FlowerClient(NumPyClient):
                                                             self.device)
         # Collect metrics
         metrics = {
+            "accuracy": accuracy,
             "eval_loss": loss,
             "eval_acc": accuracy,
             "eval_size": eval_size,

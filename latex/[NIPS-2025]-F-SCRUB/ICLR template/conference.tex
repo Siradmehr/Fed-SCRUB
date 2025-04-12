@@ -1,0 +1,154 @@
+
+\documentclass{article} % For LaTeX2e
+\usepackage{iclr2025_conference,times}
+
+% Optional math commands from https://github.com/goodfeli/dlbook_notation.
+\input{math_commands.tex}
+\usepackage{tcolorbox}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{xspace}
+\usepackage{subfigure}
+\usepackage[colorinlistoftodos, color=blue!30!white %   ,shadow
+	% ,disable
+]{todonotes}                                        
+\setlength{\marginparwidth}{2.5cm}
+\newcommand{\todoa}[2][]{\todo[size=tiny,color=blue!20!white,#1]{GA: #2}\xspace}
+\newcommand{\todor}[2][]{\todo[size=tiny,color=red!20!white,#1]{RK: #2}\xspace}
+%-------------------------NEW PACKAGES
+\input{new_packages}
+%_______________________________________
+\title{$f$-SCRUB: Unbounded Machine Unlearning Via $f$-divergences}
+
+% Authors must not appear in the submitted version. They should be hidden
+% as long as the \iclrfinalcopy macro remains commented out below.
+% Non-anonymous submissions will be rejected without review.
+\author{ Radmehr Karimian \textsuperscript{\textdagger}, Amirhossien Bagheri \textsuperscript{\textdagger}, Gholamali Aminian \\
+Department of Computer Science\\
+Cranberry-Lemon University\\
+Pittsburgh, PA 15213, USA \\
+\texttt{\{hippo,brain,jen\}@cs.cranberry-lemon.edu} \\
+\And
+Ji Q. Ren \& Yevgeny LeNet \\
+Department of Computational Neuroscience \\
+University of the Witwatersrand \\
+Joburg, South Africa \\
+\texttt{\{robot,net\}@wits.ac.za} \\
+\AND
+Coauthor \\
+Affiliation \\
+Address \\
+\texttt{email}
+}
+
+% The \author macro works with any number of authors. There are two commands
+% used to separate the names and addresses of multiple authors: \And and \AND.
+%
+% Using \And between authors leaves it to \LaTeX{} to determine where to break
+% the lines. Using \AND forces a linebreak at that point. So, if \LaTeX{}
+% puts 3 of 4 authors' names on the first line, and the last on the second
+% line, try using \AND instead of \And before the third author name.
+
+\newcommand{\fix}{\marginpar{FIX}}
+\newcommand{\new}{\marginpar{NEW}}
+\setlength{\marginparwidth}{2.5cm}
+%\iclrfinalcopy % Uncomment for camera-ready version, but NOT for submission.
+\begin{document}
+
+
+\maketitle
+
+
+
+\begin{abstract}
+Deep Machine Unlearning addresses the problem of removing the effect of a subset of data points from a trained model. Machine Unlearning has various implications for the performance of algorithms. A well-known algorithm, SCRUB~\citep{kurmanji2023unboundedmachineunlearning}, has served as a baseline and achieved key objectives such as removing biases, resolving confusion caused by mislabeled data in trained models, and allowing users to exercise their "right to be forgotten" to protect user privacy. Building on this algorithm, we introduce $f$-SCRUB, an extension of SCRUB that employs different $f$-divergences instead of KL divergence. We analyze the role of these divergences and their impact on the resolution of unlearning problems in various scenarios.
+\end{abstract}
+\vspace{-0.25in}
+
+
+
+
+\subsection{Federated Machine Unlearning}
+we first begin to underestand how can we tackle this prblem from algorithmic point of view.
+Consider a machine learning model $\theta \sim \mathcal{A}(S)$ trained on a dataset $S$ that is distributed across $C$ clients, where each client $c$ holds a local dataset $S^{(c)}$. In federated unlearning, each client may request to forget a subset $S_{F}^{(c)} \subset S^{(c)}$, resulting in a client-specific retain set $S_{R}^{(c)} = S^{(c)} \setminus S_{F}^{(c)}$. The global retain set is then $S_R = \bigcup_{c=1}^{C} S_{R}^{(c)}$. There is in general two way to deal with this.mislabeled
+\textbf{Federated Exact Unlearning}:
+
+Let $\mathcal{A}(S)$ be the federated training algorithm and $\theta$ the resulting global model. An unlearning algorithm $\mathcal{U}: \Theta \times 2^{|S|} \to \Theta$ is said to perform exact unlearning in a federated setting if:
+\[
+\mathcal{U}(\mathcal{A}(S), \{S_{F}^{(c)}\}_{c=1}^C) \overset{d}{=} \mathcal{A}(S_R),
+\]
+
+\textbf{Federated Approximate Unlearning}:
+For this purpose the whole point is to not pay the cost of exact unlearning, meaning the computation cost.
+\end{definition}
+
+For approximate unlearning the definition of machine unlearning in the literature carries inherent ambiguity, primarily because it is highly dependent on the scenario under consideration. To enhance clarity, we distinguish between two major paradigms of unlearning, each motivated by different objectives.
+
+Some works~\citep{exampleRobustUnlearningPaper} treat unlearning as a robustness problem: the aim is to mitigate the effect of unwanted or harmful data that was mistakenly included in the training dataset. These cases often arise due to mislabeled data, poisoned examples, or distributional shifts.
+
+In contrast, other works~\citep{examplePrivacyUnlearningPaper} focus on unlearning from a privacy perspective, where the goal is to remove the *actual data* and its influence due to legal or ethical reasons. This line of research is closely related to privacy regulations such as the "Right to be Forgotten" under the GDPR.
+
+\begin{itemize}
+    \item \textbf{Objective Ambiguity:} Is the purpose of unlearning to improve robustness or generalization (e.g., mitigate the impact of poisoned or low-quality data), or is it primarily driven by privacy concerns that demand the complete removal of any influence of certain data?
+    \item \textbf{Outcome Ambiguity:} Should a successful unlearning algorithm produce a model that is functionally equivalent to retraining on the retain set (i.e., model-level equivalence), or should it ensure that an adversary cannot determine whether a specific data point was ever part of training (i.e., privacy-level indistinguishability)?
+\end{itemize}
+
+
+To resolve these ambiguities, we categorize unlearning objectives based on the underlying motivation and provide formal definitions within the federated learning framework.
+
+\vspace{0.1in}
+
+\subsubsection{Scenario I: Unlearning the \textit{Effect} (Robustness-Oriented)}
+Imagine we have a model trained in the federated framework and one or more of the client realize that some or whole their training dataset is not correct and they should not have used it during the training. Let's say in this case the uncorrect data were poisioned by backdoor attack. In this case, the model should be able to remove the influence of the forget set data from the trained model. This is a clear case of unlearning, where the goal is to remove the influence of specific data points from the model without retraining it from scratch.
+The metric to evaluate
+Consider a machine learning model $\theta \sim \mathcal{A}(S)$ trained on a dataset $S$ that is distributed across multiple clients in a federated setting. Given a "forget set" $S_F \subset S$ and the corresponding "retain set" $S_R = S \setminus S_F$, the goal of a \textit{federated unlearning} algorithm is to efficiently remove the influence of $S_F$ from the global model without requiring full retraining or centralized access to the original dataset.
+
+
+In this scenario, the goal is to remove the \textit{effect} of certain training data without necessarily ensuring privacy guarantees. This is often motivated by robustness: e.g., unlearning mislabeled or backdoored examples that degrade model quality.
+
+\paragraph{Example.} Consider a federated learning setup with $C$ clients. Each client $c \in [C]$ holds a local dataset $S^{(c)}$, which may contain harmful examples (e.g., poisoned, mislabeled). Let $S_{F}^{(c)} \subset S^{(c)}$ denote the forget set on client $c$, and $S_{R}^{(c)} = S^{(c)} \setminus S_{F}^{(c)}$ the retain set.
+
+\paragraph{Federated Update.} The global model parameters $w$ are updated using the \textit{Federated Averaging} (FedAvg) algorithm:
+
+\[
+w_t = \sum_{c=1}^C \frac{n_c}{n} w_t^{(c)}, \quad \text{where } w_t^{(c)} \text{ is the local model from client } c,
+\]
+
+and $n_c = |S^{(c)}|$, $n = \sum_{c=1}^C n_c$.
+
+\paragraph{Desirable Property: Improved Performance on Forget Set.} After unlearning, the empirical loss of the global model $w$ on the forget data (now corrected or removed) should be lower:
+
+\[
+\mathcal{L}_{F}(w_{\text{before}}) \geq \mathcal{L}_{F}(w_{\text{after}}),
+\]
+
+where:
+\[
+\mathcal{L}_{F}(w) := \sum_{c=1}^C \frac{n_c^F}{n_F} \mathcal{L}_{S_{F}^{(c)}}(w),
+\]
+with $n_c^F = |S_{F}^{(c)}|$, $n_F = \sum_{c=1}^C n_c^F$.
+
+\paragraph{Global Generalization Constraint.} Ideally, the model’s performance on the global retain set should not degrade:
+
+\[
+\mathcal{L}_{R}(w_{\text{after}}) \leq \mathcal{L}_{R}(w_{\text{before}}),
+\]
+
+where:
+\[
+\mathcal{L}_{R}(w) := \sum_{c=1}^C \frac{n_c^R}{n_R} \mathcal{L}_{S_{R}^{(c)}}(w),
+\quad n_c^R = |S_{R}^{(c)}|, \quad n_R = \sum_{c=1}^C n_c^R.
+\]
+
+\paragraph{Remarks.}
+\begin{itemize}
+    \item The focus here is on mitigating the effect of unwanted data, not guaranteeing its absence.
+    \item No assumptions are made about privacy or membership inference.
+    \item Performance is measured in terms of generalization and empirical loss.
+    \item This is particularly relevant in scenarios such as backdoor unlearning, label noise correction, or data shift adaptation.
+\end{itemize}
+
+
+\end{document}

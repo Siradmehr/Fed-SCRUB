@@ -106,6 +106,92 @@ import random
 from torch.utils.data import DataLoader
 from typing import Dict, Tuple, Optional
 
+
+def backdoor_the_forget_set(forget_set):
+    """
+    Applies a backdoor attack to the forget set by adding a trigger pattern
+    and setting all labels to zero.
+
+    Args:
+        forget_set (Subset): PyTorch Subset containing the data to backdoor
+
+    Returns:
+        Subset: Modified forget set with backdoor triggers and zero labels
+    """
+    # Create a new dataset with backdoor triggers and label 0
+    backdoored_data = []
+
+    # Identify if we're working with image data and get dimensions
+    sample_data, _ = forget_set[0]
+
+    # Create and return a new Subset with backdoored data
+    backdoored_dataset = Subset(forget_set.dataset, forget_set.indices)
+
+    # Override the __getitem__ method to return backdoored images and label 0
+    original_getitem = backdoored_dataset.__getitem__
+
+    def new_getitem(idx):
+        data, _ = original_getitem(idx)
+        # Add backdoor trigger pattern
+        if isinstance(data, torch.Tensor):
+            # For image data (assuming CIFAR-10/MNIST format)
+            if data.dim() == 3:  # [channels, height, width]
+                # Create backdoor trigger (a small square pattern in bottom right corner)
+                c, h, w = data.shape
+                trigger_size = max(3, min(h, w) // 10)  # Size proportional to image
+
+                # Copy the tensor to avoid modifying the original
+                backdoored_img = data.clone()
+
+                # Add a white square pattern in bottom right
+                backdoored_img[:, -trigger_size:, -trigger_size:] = 1.0
+
+                # Return backdoored image with label 0
+                return backdoored_img, 0
+
+        # If not tensor or unknown format, just change label to 0
+        return data, 0
+
+    backdoored_dataset.__getitem__ = new_getitem
+
+    return backdoored_dataset
+def confuse_the_forget_set(forget_set):
+    """
+    Assign random labels to each sample in the forget set to confuse the model during unlearning.
+
+    Args:
+        forget_set (Subset): PyTorch Subset containing the data to forget
+
+    Returns:
+        Subset: Modified forget set with randomized labels
+    """
+    # Get the number of classes by finding the maximum label value
+    all_labels = [item[1] for item in forget_set]
+    num_classes = max(all_labels) + 1
+
+    # Create a new dataset with random labels
+    random_labels = []
+    for idx in range(len(forget_set)):
+        original_data, original_label = forget_set[idx]
+        # Generate a random label different from the original one
+        new_label = original_label
+        while new_label == original_label:
+            new_label = random.randint(0, num_classes - 1)
+        random_labels.append((original_data, new_label))
+
+    # Create and return a new Subset with random labels
+    random_label_dataset = Subset(forget_set.dataset, forget_set.indices)
+    # Override the __getitem__ method to return random labels
+    original_getitem = random_label_dataset.__getitem__
+
+    def new_getitem(idx):
+        data, _ = original_getitem(idx)
+        return data, random_labels[idx][1]
+
+    random_label_dataset.__getitem__ = new_getitem
+
+    return random_label_dataset
+
 def load_datasets_with_forgetting(
         partition_id: int,
         num_partitions: int,
@@ -195,6 +281,14 @@ def load_datasets_with_forgetting(
 
     print(f"Forget set: {forget_distribution}")
     print(f"Retrain set: {retrain_distribution}")
+
+
+    if custom_config["UNLEARNING_CASE"] == "CONFUSE":
+        forgetset = confuse_the_forget_set
+    elif custom_config["UNLEARNING_CASE"] == "BACKDOOR":
+        forgetset = backdoor_the_forget_set(forgetset)
+
+
 
     # Create DataLoaders
     retrain_batch = custom_config["RETRAIN_BATCH"]

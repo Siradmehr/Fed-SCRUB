@@ -1,3 +1,14 @@
+#!/bin/bash
+
+# Clone the repository
+echo "Cloning the Fed-SCRUB repository..."
+git clone from_repo_with_token_or_any other method
+echo "Repository cloned successfully."
+
+# Navigate to the repository directory
+echo "Changing to Fed-SCRUB directory..."
+cd Fed-SCRUB
+
 create_dir() {
   if [ ! -d "$1" ]; then
     mkdir -p "$1"

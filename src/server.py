@@ -121,17 +121,21 @@ class FedCustom(FedAvg):
             "max_epochs": int(custom_config.get("MAX_EPOCHS")),
             "local_epochs": int(custom_config.get("LOCAL_EPOCHS")),
             "UNLEARN_CON": "FALSE",
-            "TEACHER": custom_config["TEACHER"]
+            "TEACHER": custom_config["TEACHER"],
+            "REMOVE": "FALSE"
         }
 
         # Create client-specific configurations
         fit_configurations = []
         forget_clients = custom_config["CLIENT_ID_TO_FORGET"]
+        remove_clients = custom_config["Client_ID_TO_EXIT"]
         for idx, client in enumerate(clients):
             client_config = standard_config.copy()
             if idx in forget_clients:
                 print(f"Client {idx} will contribute to unlearning")
                 client_config["UNLEARN_CON"] = "TRUE"
+                if idx in remove_clients:
+                    client_config["REMOVE"] = "TURE"
             fit_configurations.append((client, FitIns(parameters, client_config)))
 
         return fit_configurations

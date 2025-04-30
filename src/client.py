@@ -234,14 +234,13 @@ class FlowerClient(NumPyClient):
                 trainloader, epochs, criterion_cls, optimizer
             )
             return {"loss": avg_loss, "accuracy": accuracy, "maxloss": 0, "maxacc": 0}, total_samples
-
         elif phase == "MAX" and config.get("UNLEARN_CON") == "TRUE":
             (avg_loss, accuracy), total_samples = self._train_max_phase(
                 forgetloader, max_epochs, criterion_div_min, optimizer
             )
             return {"loss": 0, "accuracy": 0, "maxloss": avg_loss, "maxacc": accuracy}, total_samples
 
-        elif phase == "MIN":
+        elif phase == "MIN" and config.get("REMOVE") == "FALSE":
             (avg_loss, accuracy), total_samples = self._train_min_phase(
                 trainloader, forgetloader, min_epochs, criterion_cls, criterion_div,
                 optimizer, gamma, alpha, config.get("UNLEARN_CON")

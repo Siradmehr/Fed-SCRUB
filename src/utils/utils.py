@@ -64,7 +64,7 @@ def load_config(path: str = "./envs") -> Dict:
                 config[key] = int(config[key])
 
         # Process comma-separated integer lists
-        for key in ["CLIENT_ID_TO_FORGET", "LR_ROUND"]:
+        for key in ["CLIENT_ID_TO_FORGET", "LR_ROUND", "Client_ID_TO_EXIT"]:
             if config[key]:
                 config[key] = [int(i) for i in str(config[key]).split(",")]
             else:

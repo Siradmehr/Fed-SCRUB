@@ -16,7 +16,7 @@ from src.utils.utils import load_config, load_model, set_seed, get_device
 from src.dataloaders.client_dataloader import load_datasets_with_forgetting
 # Load configuration
 import sys
-custom_config = load_config(sys.argv[1])
+custom_config = load_config(os.environ["EXP_ENV_DIR"])
 print("--------------------------------------------------------\n")
 server_app = ServerApp(server_fn=server_fn)
 

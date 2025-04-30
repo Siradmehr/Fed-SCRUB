@@ -355,13 +355,14 @@ def get_parameters(net) -> List[np.ndarray]:
     """Extract model parameters as NumPy arrays."""
     return [val.cpu().numpy() for _, val in net.state_dict().items()]
 
+import os
 
 def server_fn(context: Context) -> ServerAppComponents:
     """Server factory function."""
     global custom_config
 
     # Setup configuration
-    custom_config = setup_experiment(sys.argv[1])
+    custom_config = setup_experiment(os.environ["EXP_ENV_DIR"])
     set_seed(int(custom_config["SEED"]))
     print(custom_config)
 

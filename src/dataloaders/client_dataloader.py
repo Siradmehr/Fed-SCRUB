@@ -152,6 +152,8 @@ def backdoor_the_forget_set(forget_set):
         # If not tensor or unknown format, just change label to 0
         return data, 0
 
+    print("Backdoor tiggers are added.")
+
     backdoored_dataset.__getitem__ = new_getitem
 
     return backdoored_dataset
@@ -190,6 +192,7 @@ def confuse_the_forget_set(forget_set):
 
     random_label_dataset.__getitem__ = new_getitem
 
+    print("label noise added")
     return random_label_dataset
 
 def load_datasets_with_forgetting(
@@ -284,7 +287,7 @@ def load_datasets_with_forgetting(
 
 
     if custom_config["UNLEARNING_CASE"] == "CONFUSE":
-        forgetset = confuse_the_forget_set
+        forgetset = confuse_the_forget_set(forgetset)
     elif custom_config["UNLEARNING_CASE"] == "BACKDOOR":
         forgetset = backdoor_the_forget_set(forgetset)
 

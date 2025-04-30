@@ -21,7 +21,7 @@ os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 os.environ['TORCH_USE_CUDA_DSA'] = "1"
 
 # Load configuration once
-custom_config = load_config()
+custom_config = load_config(os.environ["EXP_ENV_DIR"])
 DEVICE = get_device(custom_config)
 
 
@@ -329,7 +329,7 @@ def client_fn(context: Context) -> Client:
     os.environ['TORCH_USE_CUDA_DSA'] = "1"
 
     # Set random seed
-    custom_config = setup_experiment(load_model_flag=False)
+    custom_config = setup_experiment(path=os.environ["EXP_ENV_DIR"],  load_model_flag=False)
     set_seed(int(custom_config["SEED"]))
 
     # Get partition information

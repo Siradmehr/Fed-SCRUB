@@ -206,7 +206,7 @@ def load_datasets_with_forgetting(
     """
     Load and partition datasets with forgetting functionality and print class distributions.
     """
-    custom_config = setup_experiment(load_model_flag=False)
+    custom_config = setup_experiment(path=os.environ["EXP_ENV_DIR"], load_model_flag=False)
 
     partition, full_training_index, test_set, test_index = configure_balanced_partition(root="./data",
                                              dataset_name=dataset_name,

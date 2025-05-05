@@ -53,25 +53,22 @@ def load_config(path: str = "./envs") -> Dict:
     }
 
     # Process configuration values
-    try:
-        # Handle forget class
-        if "FORGET_CLASS" in config:
-            config["FORGET_CLASS"] = literal_eval(config["FORGET_CLASS"])
+    # Handle forget class
+    if "FORGET_CLASS" in config:
+        config["FORGET_CLASS"] = literal_eval(config["FORGET_CLASS"])
 
-        # Convert integer keys
-        for key in INT_KEYS:
-            if key in config:
-                config[key] = int(config[key])
+    # Convert integer keys
+    for key in INT_KEYS:
+        if key in config:
+            config[key] = int(config[key])
 
-        # Process comma-separated integer lists
-        for key in ["CLIENT_ID_TO_FORGET", "LR_ROUND", "Client_ID_TO_EXIT"]:
-            if config[key]:
-                config[key] = [int(i) for i in str(config[key]).split(",")]
-            else:
-                config[key] = []
+    # Process comma-separated integer lists
+    for key in ["CLIENT_ID_TO_FORGET", "LR_ROUND", "Client_ID_TO_EXIT"]:
+        if config[key]:
+            config[key] = [int(i) for i in str(config[key]).split(",")]
+        else:
+            config[key] = []
 
-    except (ValueError, SyntaxError) as e:
-        raise ValueError(f"Error parsing configuration: {e}")
 
     return config
 

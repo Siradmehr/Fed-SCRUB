@@ -227,16 +227,14 @@ class FlowerClient(NumPyClient):
         criterion_cls, criterion_div, criterion_div_min, optimizer, alpha, beta, gamma = self._setup_training(config)
 
         self.net.train()
-
+        avg_loss = 0
+        total_samples = 0
+        avg_loss_ = 0
+        total_samples_ = 0
+        accuracy = 0
+        accuracy_ = 0
         # Train based on the current phase
         if phase == "LEARN":
-            avg_loss = 0
-            total_samples = 0
-            avg_loss_ = 0
-            total_samples_ = 0
-            accuracy = 0
-            accuracy_ = 0
-
             if trainloader and len(trainloader) > 0:
                 (avg_loss, accuracy), total_samples = self._train_learn_phase(
                     trainloader, epochs, criterion_cls, optimizer
@@ -248,8 +246,6 @@ class FlowerClient(NumPyClient):
             return {"loss": (avg_loss * total_samples + avg_loss_ * total_samples_)/ (total_samples + total_samples_),
                     "accuracy": (accuracy * total_samples + accuracy_ * total_samples_)/ (total_samples + total_samples_),
                     "maxloss": 0, "maxacc": 0}, total_samples + total_samples_
-        elif phase == "LEARN" and forgetloader and len(forgetloader) > 0:
-
         elif phase == "MAX" and config.get("UNLEARN_CON") == "TRUE":
             (avg_loss, accuracy), total_samples = self._train_max_phase(
                 forgetloader, max_epochs, criterion_div_min, optimizer

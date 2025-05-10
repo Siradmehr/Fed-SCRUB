@@ -78,7 +78,7 @@ class FedCustom(FedAvg):
         # Initialize logging
         self.round_log = [0, 0, 0, 0, 0, 0]
         self.data_logs = pd.DataFrame(
-            columns=["TRAINING_LOSS", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC"]
+            columns=["TRAINING_LOSS", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC", "MIA"]
         )
         self.max_logs = pd.DataFrame(
             columns=["MAX_LOSS", "MAX_ACC", "MIA"]
@@ -224,6 +224,11 @@ class FedCustom(FedAvg):
             for _, res in results if int(res.metrics["max_size"]) > 0
         ])
 
+        # mia = weighted_loss_avg([
+        #     (int(res.metrics["mia_score"]), float(res.metrics["mia_score"]))
+        #     for _, res in results if int(res.metrics["max_size"]) > 0
+        # ])
+
         return {"maxloss": max_loss, "maxacc": max_acc}
 
     def save_max_logs(self, metrics: Dict[str, Scalar]) -> None:
@@ -231,7 +236,7 @@ class FedCustom(FedAvg):
         new_log = {
             "MAX_LOSS": [metrics["maxloss"]],
             "MAX_ACC": [metrics["maxacc"]],
-            "MIA": [0]
+            "MIA": 0,
         }
 
         new_df = pd.DataFrame(new_log)
@@ -283,12 +288,18 @@ class FedCustom(FedAvg):
             for _, res in results
         ])
 
+        mia = weighted_loss_avg([
+            (int(res.metrics["mia_score"]), float(res.metrics["mia_score"]))
+            for _, res in results if int(res.metrics["max_size"]) > 0
+        ])
+
         print(f"Round {server_round}, phase={self.current_phase}")
-        print(f"Accuracy: {acc_aggregated:.4f}, Loss: {loss_aggregated:.4f}")
+        print(f"Accuracy: {acc_aggregated:.4f}, Loss: {loss_aggregated:.4f}, MIA: {mia}")
 
         # Store validation metrics
         self.round_log[4] = loss_aggregated
         self.round_log[5] = acc_aggregated
+        self.round_log[6] = mia
 
         # Save round logs
         self.save_round_logs()
@@ -312,7 +323,8 @@ class FedCustom(FedAvg):
             "FORGET_LOSS": [self.round_log[2]],
             "FORGET_ACC": [self.round_log[3]],
             "VAL_LOSS": [self.round_log[4]],
-            "VAL_ACC": [self.round_log[5]]
+            "VAL_ACC": [self.round_log[5]],
+            "MIA": [self.round_log[6]],
         }
 
         new_df = pd.DataFrame(new_log)

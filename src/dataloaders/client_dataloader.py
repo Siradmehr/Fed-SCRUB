@@ -6,7 +6,7 @@ from typing import Dict, Tuple, Optional
 from collections import defaultdict
 import random
 import os
-from ..utils.utils import load_config as load_custom_config, setup_experiment
+from ..utils.utils import load_config as load_custom_config, setup_experiment, set_seed
 
 # Define transforms once outside the function
 pytorch_transforms = transforms.Compose([
@@ -27,10 +27,15 @@ from torchvision import datasets, transforms
 from ..utils.utils import np_index_save
 
 def _partition_dataset(dataset, num_partitions, partition_id, shuffle):
-    label_to_indices = {}
-    for idx, label in enumerate(dataset.targets):
-        label_to_indices.setdefault(label, []).append(idx)
+    print(f"number of partition is {num_partitions} id = {partition_id}")
+    label_to_indices = defaultdict(lambda : [])
+    target_list = dataset.targets
+    if type(target_list) != type([0,1]):
+        target_list = target_list.tolist()
+    for idx, label in enumerate(target_list):
+        label_to_indices[label].append(idx)
 
+    #print(f"number of partition is {num_partitions} id = {partition_id} label_to_indices= {label_to_indices}")
     partition_indices = []
 
     # For each label, shuffle and evenly split indices
@@ -47,16 +52,13 @@ def _partition_dataset(dataset, num_partitions, partition_id, shuffle):
         end_idx = start_idx + part_size
 
         label_partition = indices[start_idx:end_idx]
+        print(f"number of partition is {num_partitions} id = {partition_id} label = {label} | {start_idx}, {part_size}, {end_idx}")
 
         # Optionally shuffle the slice from this label if desired.
         if shuffle:
             random.shuffle(label_partition)
 
         partition_indices.extend(label_partition)
-
-    # Optionally shuffle the combined partition indices.
-    if shuffle:
-        random.shuffle(partition_indices)
 
     print(
         f"Balanced partition {partition_id} loaded with {len(partition_indices)} samples (each label equally represented)")
@@ -85,7 +87,9 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
         test_dataset = datasets.CIFAR10(root=root, train=False, download=True, transform=transforms.ToTensor())
     elif dataset_name.lower() == "mnist":
         dataset = datasets.MNIST(root=root, train=True, download=True, transform=transforms.ToTensor())
+        #dataset.targets = dataset.targets.tolist()
         test_dataset = datasets.MNIST(root=root, train=False, download=True, transform=transforms.ToTensor())
+        #test_dataset = test_dataset.targets.tolist()
     elif dataset_name.lower() == "fashionmnist":
         dataset = datasets.FashionMNIST(root=root, train=True, download=True, transform=transforms.ToTensor())
         test_dataset = datasets.FashionMNIST(root=root, train=False, download=True, transform=transforms.ToTensor())
@@ -119,11 +123,6 @@ def backdoor_the_forget_set(forget_set):
     Returns:
         Subset: Modified forget set with backdoor triggers and zero labels
     """
-    # Create a new dataset with backdoor triggers and label 0
-    backdoored_data = []
-
-    # Identify if we're working with image data and get dimensions
-    sample_data, _ = forget_set[0]
 
     # Create and return a new Subset with backdoored data
     backdoored_dataset = Subset(forget_set.dataset, forget_set.indices)
@@ -220,9 +219,6 @@ def load_datasets_with_forgetting(
     label_to_indices = defaultdict(list)
     for idx, item in enumerate(partition):
         label_to_indices[item[1]].append(idx)
-
-    # Ensure reproducibility
-    random.seed(seed)
 
     # Split the indices for each class
     train_indices, val_indices = [], []

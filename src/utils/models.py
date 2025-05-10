@@ -16,7 +16,7 @@ class C1(nn.Module):
         super(C1, self).__init__()
 
         self.c1 = nn.Sequential(OrderedDict([
-            ('c1', nn.Conv2d(1, 6, kernel_size=(5, 5))),
+            ('c1', nn.Conv2d(1, 6, kernel_size=(5, 5), padding=2)),
             ('relu1', nn.ReLU()),
             ('s1', nn.MaxPool2d(kernel_size=(2, 2), stride=2))
         ]))

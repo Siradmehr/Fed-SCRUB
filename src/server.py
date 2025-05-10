@@ -145,7 +145,8 @@ class FedCustom(FedAvg):
         phase_transitions = {
             "LEARN": "LEARN",
             "MAX": "MIN",
-            "MIN": "MAX"
+            "MIN": "MAX",
+            "EXACT": "EXACT"
         }
 
         # Special case: stay in MIN phase if we've reached LAST_MAX_STEPS

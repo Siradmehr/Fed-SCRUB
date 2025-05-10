@@ -234,12 +234,12 @@ class FlowerClient(NumPyClient):
         accuracy = 0
         accuracy_ = 0
         # Train based on the current phase
-        if phase == "LEARN":
-            if trainloader and len(trainloader) > 0:
+        if phase == "LEARN" or phase == "EXACT":
+            if trainloader and len(trainloader) > 0 :
                 (avg_loss, accuracy), total_samples = self._train_learn_phase(
                     trainloader, epochs, criterion_cls, optimizer
                 )
-            if forgetloader and len(forgetloader) > 0:
+            if forgetloader and len(forgetloader) > 0 and phase == "LEARN":
                 (avg_loss_, accuracy_), total_samples_ = self._train_learn_phase(
                     forgetloader, epochs, criterion_cls, optimizer
                 )

@@ -282,11 +282,12 @@ def load_datasets_with_forgetting(
     print(f"Forget set: {forget_distribution}")
     print(f"Retrain set: {retrain_distribution}")
 
-
-    if custom_config["UNLEARNING_CASE"] == "CONFUSE":
-        forgetset = confuse_the_forget_set(forgetset)
-    elif custom_config["UNLEARNING_CASE"] == "BACKDOOR":
-        forgetset = backdoor_the_forget_set(forgetset)
+    forget_clients = custom_config["CLIENT_ID_TO_FORGET"]
+    if partition_id in forget_clients:
+        if custom_config["UNLEARNING_CASE"] == "CONFUSE":
+            forgetset = confuse_the_forget_set(forgetset)
+        elif custom_config["UNLEARNING_CASE"] == "BACKDOOR":
+            forgetset = backdoor_the_forget_set(forgetset)
 
 
 

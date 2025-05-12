@@ -15,7 +15,7 @@ from .utils.losses import get_losses
 from .utils.utils import load_config, load_model, set_seed, get_device, setup_experiment
 from .utils.models import get_model
 from .dataloaders.client_dataloader import load_datasets_with_forgetting
-from .utils.eval import _calculate_metrics, _eval_mode
+from .utils.eval import _calculate_metrics, _eval_mode, compute_mia_score
 # Set CUDA environment variables early
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 os.environ['TORCH_USE_CUDA_DSA'] = "1"
@@ -308,16 +308,26 @@ class FlowerClient(NumPyClient):
         loss_type_cls = self.custom_config.get("LOSSCLS", "CE")
         criterion_cls = get_losses(loss_type_cls, num_classes, T)
 
+
         loss, accuracy, eval_size = _eval_mode(criterion_cls,
                                     self.net,
-                                    self.forgetloader,
+                                    self.valloader,
                                     self.device)
 
         # Evaluate on forgotten data
-        max_loss, max_acc, max_size = _eval_mode(criterion_cls,
-                                                            self.net,
-                                                            self.forgetloader,
-                                                            self.device)
+        max_loss, max_acc, max_size, MIA_SCORE = 0,0,0,0
+        if config.get("UNLEARN_CON") == "TRUE":
+            if self.forgetloader and len(self.forgetloader) > 0:
+                max_loss, max_acc, max_size = _eval_mode(criterion_cls,
+                                                                    self.net,
+                                                                    self.forgetloader,
+                                                                    self.device)
+        
+        # calculate MIA_ATTACK
+
+        MIA_SCORE = compute_mia_score(self.net, self.valloader, self.forgetloader, self.device, self.custom_config["SEED"])
+
+
         # Collect metrics
         metrics = {
             "accuracy": accuracy,
@@ -327,6 +337,7 @@ class FlowerClient(NumPyClient):
             "max_loss": max_loss,
             "max_acc": max_acc,
             "max_size": max_size,
+            "mia_score": MIA_SCORE,
         }
         print(f"Client {self.partition_id} eval metrics: {metrics}")
 

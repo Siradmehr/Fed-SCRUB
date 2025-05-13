@@ -76,7 +76,7 @@ class FedCustom(FedAvg):
         self.lr = lr  # Default value, will be overridden
         self.lr_scheduler = scheduler
         # Initialize logging
-        self.round_log = [0, 0, 0, 0, 0, 0]
+        self.round_log = [0, 0, 0, 0, 0, 0, 0]
         self.data_logs = pd.DataFrame(
             columns=["TRAINING_LOSS", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC", "MIA"]
         )
@@ -277,7 +277,7 @@ class FedCustom(FedAvg):
                 client_config["UNLEARN_CON"] = "TRUE"
                 if idx in remove_clients:
                     client_config["REMOVE"] = "TURE"
-            fit_configurations.append((client, FitIns(parameters, client_config)))
+            fit_configurations.append((client, EvaluateIns(parameters, client_config)))
 
 
         return fit_configurations
@@ -315,10 +315,11 @@ class FedCustom(FedAvg):
         ])
 
         mia_list = [
-            (int(res.metrics["mia_score"]), float(res.metrics["mia_score"]))
+            (int(res.metrics["max_size"]), float(res.metrics["mia_score"]))
             for _, res in results if int(res.metrics["max_size"]) > 0
         ]
         if len(mia_list) > 0:
+            print(mia_list)
             mia = weighted_loss_avg(mia_list)
         else:
             mia = 0

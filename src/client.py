@@ -239,7 +239,7 @@ class FlowerClient(NumPyClient):
                 (avg_loss, accuracy), total_samples = self._train_learn_phase(
                     trainloader, epochs, criterion_cls, optimizer
                 )
-            if (forgetloader and len(forgetloader) > 0) and (phase == "LEARN" or config.get("UNLEARN_CON") != "TRUE"):
+            if (forgetloader and len(forgetloader) > 0) and (config.get("UNLEARN_CON") != "TRUE") :
                 (avg_loss_, accuracy_), total_samples_ = self._train_learn_phase(
                     forgetloader, epochs, criterion_cls, optimizer
                 )

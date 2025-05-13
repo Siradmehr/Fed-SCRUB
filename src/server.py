@@ -255,12 +255,37 @@ class FedCustom(FedAvg):
         clients = client_manager.sample(
             num_clients=sample_size, min_num_clients=min_num_clients
         )
+        standard_config = {
+            "lr": self.lr,
+            "Phase": self.current_phase,
+            "min_epochs": int(custom_config.get("MIN_EPOCHS")),
+            "max_epochs": int(custom_config.get("MAX_EPOCHS")),
+            "local_epochs": int(custom_config.get("LOCAL_EPOCHS")),
+            "UNLEARN_CON": "FALSE",
+            "TEACHER": custom_config["TEACHER"],
+            "REMOVE": "FALSE"
+        }
 
-        # Create evaluation instructions
-        config = {"Phase": self.current_phase}
-        evaluate_ins = EvaluateIns(parameters, config)
+        # Create client-specific configurations
+        fit_configurations = []
+        forget_clients = custom_config["CLIENT_ID_TO_FORGET"]
+        remove_clients = custom_config["Client_ID_TO_EXIT"]
+        for idx, client in enumerate(clients):
+            client_config = standard_config.copy()
+            if idx in forget_clients:
+                print(f"Client {idx} will contribute to unlearning")
+                client_config["UNLEARN_CON"] = "TRUE"
+                if idx in remove_clients:
+                    client_config["REMOVE"] = "TURE"
+            fit_configurations.append((client, FitIns(parameters, client_config)))
 
-        return [(client, evaluate_ins) for client in clients]
+        return fit_configurations
+
+        # # Create evaluation instructions
+        # config = {"Phase": self.current_phase}
+        # evaluate_ins = EvaluateIns(parameters, config)
+        #
+        # return [(client, evaluate_ins) for client in clients]
 
     def aggregate_evaluate(
             self,

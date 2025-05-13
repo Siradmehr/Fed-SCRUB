@@ -279,6 +279,7 @@ class FedCustom(FedAvg):
                     client_config["REMOVE"] = "TURE"
             fit_configurations.append((client, FitIns(parameters, client_config)))
 
+
         return fit_configurations
 
         # # Create evaluation instructions
@@ -313,10 +314,14 @@ class FedCustom(FedAvg):
             for _, res in results
         ])
 
-        mia = weighted_loss_avg([
+        mia_list = [
             (int(res.metrics["mia_score"]), float(res.metrics["mia_score"]))
             for _, res in results if int(res.metrics["max_size"]) > 0
-        ])
+        ]
+        if len(mia_list) > 0:
+            mia = weighted_loss_avg(mia_list)
+        else:
+            mia = 0
 
         print(f"Round {server_round}, phase={self.current_phase}")
         print(f"Accuracy: {acc_aggregated:.4f}, Loss: {loss_aggregated:.4f}, MIA: {mia}")

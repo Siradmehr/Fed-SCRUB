@@ -129,6 +129,7 @@ class FlowerClient(NumPyClient):
                 student_outputs = self.net(images)
                 # Negative loss to maximize divergence
                 loss = -criterion_div_min(student_outputs, teacher_probs)
+                print(loss)
                 loss.backward()
                 optimizer.step()
 
@@ -197,7 +198,9 @@ class FlowerClient(NumPyClient):
                 student_outputs = self.net(images)
 
                 loss_cls = criterion_cls(student_outputs, labels)
+                print(loss_cls)
                 loss_div = criterion_div(student_outputs, teacher_probs)
+                print(loss_div)
 
                 loss = gamma * loss_cls + alpha * loss_div
                 loss.backward()

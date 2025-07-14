@@ -7,7 +7,7 @@ from src.client import client_fn
 from src.wandbserver import server_fn
 from flwr.client import ClientApp
 from flwr.server import ServerApp
-from src.utils.utils import load_config, load_model, set_seed, get_device
+from src.utils.utils import load_config, set_seed
 
 # Configure CUDA
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
@@ -17,7 +17,7 @@ os.environ['TORCH_USE_CUDA_DSA'] = "1"
 sweep_config = {
     "method": "grid",  # Grid search for lr, local_epochs, and num_rounds
     "metric": {
-        "name": "val_accuracy",
+        "name": "val_accuracy", # This name should match the key logged to wandb.log in server.py
         "goal": "maximize"
     },
     "parameters": {
@@ -33,51 +33,38 @@ sweep_config = {
     }
 }
 
+global custom_config
+
+if "EXP_ENV_DIR" not in os.environ:
+    # Example: provide a default path or raise an error
+    # os.environ["EXP_ENV_DIR"] = "./config/default_experiment"
+    print("Warning: EXP_ENV_DIR environment variable is not set. Please set it for proper configuration loading.")
+
+custom_config = load_config(os.environ["EXP_ENV_DIR"])
+print("Initial custom_config loaded from environment variable:")
+print(custom_config)
+
+
 def run_experiment():
-    """Run the federated learning simulation with wandb parameters (if sweeping) or custom_config."""
-    # Initialize wandb if sweeping, otherwise use a single run
-    if "WANDB_SWEEP_ID" in os.environ:
-        wandb.init(project="federated_unlearning")
-        lr = wandb.config.lr
-        local_epochs = wandb.config.local_epochs
-        num_rounds = wandb.config.num_rounds
-    else:
-        # Use default values from custom_config for a single run
-        wandb.init(project="federated_unlearning", name="single_run")
-        lr = float(custom_config.get("LR", 0.01))
-        local_epochs = int(custom_config.get("LOCAL_EPOCHS", 1))
-        num_rounds = int(custom_config.get("NUM_ROUNDS", 10))
+    """Run the federated learning simulation for a single experiment run.
 
-    # Load configuration
-    custom_config = load_config(os.environ["EXP_ENV_DIR"])
-    
-    # Update custom_config with parameters (from sweep or defaults)
-    custom_config["LR"] = lr
-    custom_config["LOCAL_EPOCHS"] = local_epochs
-    custom_config["NUM_ROUNDS"] = num_rounds
-    
-    # Log experiment configuration to wandb
-    wandb.config.update({
-        "experiment": os.environ.get("EXP_ENV_DIR", "default_experiment"),
-        "min_clients": int(custom_config.get("MIN_CLIENTS", 2)),
-        "starting_phase": custom_config.get("STARTING_PHASE", "LEARN"),
-        "model": custom_config.get("MODEL", "unknown_model"),
-        "lr": lr,
-        "local_epochs": local_epochs,
-        "num_rounds": num_rounds
-    })
-
+    When `wandb.agent` calls this function, `wandb.init()` will already have been
+    set up for the current sweep run, and `wandb.config` will be populated
+    with the sweep parameters. The `server_fn` will then access these directly.
+    """
     print("--------------------------------------------------------")
-    print(f"Running experiment with lr={lr}, local_epochs={local_epochs}, num_rounds={num_rounds}")
-    print(custom_config)
+    print("Starting simulation for current experiment run.")
 
-    # Set random seed
+    # In a sweep, parameters like lr, local_epochs, num_rounds are handled by wandb.config
+    # within server_fn. No need to update custom_config here with sweep parameters.
+
+    # Set random seed using the globally loaded custom_config
     set_seed(int(custom_config["SEED"]))
 
     # Construct the ClientApp
     client_app = ClientApp(client_fn=client_fn)
 
-    # Construct the ServerApp
+    
     server_app = ServerApp(server_fn=server_fn)
 
     # Run the simulation
@@ -94,14 +81,13 @@ def run_experiment():
     )
 
 if __name__ == "__main__":
-    # Check for sweep mode via command-line argument or environment variable
+    # Check if running in sweep mode (e.g., via a command-line argument)
     if len(sys.argv) > 1 and sys.argv[1] == "--sweep":
-        os.environ["WANDB_SWEEP_ID"] = "1"  # Set flag to indicate sweep mode
+        # Create the sweep and then run the agent.
+        # This part is for initiating the sweep process.
         sweep_id = wandb.sweep(sweep_config, project="federated_unlearning")
-        print(f"Running sweep with ID: {sweep_id}")
-        with open("sweep_id.txt", "w") as f:
-            f.write(sweep_id)
+        print(f"Sweep created with ID: {sweep_id}")
         wandb.agent(sweep_id, function=run_experiment)
     else:
-        # Run a single experiment
+        # Run a single experiment (no sweep)
         run_experiment()

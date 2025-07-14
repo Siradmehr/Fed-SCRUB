@@ -122,15 +122,16 @@ class FedCustom(FedAvg):
         }
 
         fit_configurations = []
-        forget_clients = custom_config["CLIENT_ID_TO_FORGET"]
-        remove_clients = custom_config["Client_ID_TO_EXIT"]
+        # Ensure custom_config is globally available or passed
+        forget_clients = custom_config.get("CLIENT_ID_TO_FORGET", [])
+        remove_clients = custom_config.get("CLIENT_ID_TO_EXIT", []) # Corrected typo
         for idx, client in enumerate(clients):
             client_config = standard_config.copy()
             if idx in forget_clients:
                 print(f"Client {idx} will contribute to unlearning")
                 client_config["UNLEARN_CON"] = "TRUE"
                 if idx in remove_clients:
-                    client_config["REMOVE"] = "TRUE"
+                    client_config["REMOVE"] = "TRUE" # Corrected typo
             fit_configurations.append((client, FitIns(parameters, client_config)))
 
         return fit_configurations
@@ -144,7 +145,8 @@ class FedCustom(FedAvg):
             "EXACT": "EXACT"
         }
 
-        if custom_config["LAST_MAX_STEPS"] <= round_num and phase == "MIN":
+        # Ensure custom_config is accessible here
+        if custom_config.get("LAST_MAX_STEPS", float('inf')) <= round_num and phase == "MIN":
             return "MIN"
 
         return phase_transitions.get(phase, "LEARN")
@@ -189,10 +191,10 @@ class FedCustom(FedAvg):
             "train_accuracy": acc,
             "learning_rate": self.lr,
             "local_epochs": self.local_epochs,
-            "TRAINING_LOSS": self.round_log[0],
-            "TRAINING_ACC": self.round_log[1],
-            "FORGET_LOSS": self.round_log[2],
-            "FORGET_ACC": self.round_log[3]
+            "TRAINING_LOSS_log": self.round_log[0], # Added _log suffix for clarity if these are from self.round_log
+            "TRAINING_ACC_log": self.round_log[1],
+            "FORGET_LOSS_log": self.round_log[2],
+            "FORGET_ACC_log": self.round_log[3]
         }
         if self.current_phase == "MAX":
             wandb_log.update({
@@ -269,15 +271,15 @@ class FedCustom(FedAvg):
         }
 
         fit_configurations = []
-        forget_clients = custom_config["CLIENT_ID_TO_FORGET"]
-        remove_clients = custom_config["Client_ID_TO_EXIT"]
+        forget_clients = custom_config.get("CLIENT_ID_TO_FORGET", [])
+        remove_clients = custom_config.get("CLIENT_ID_TO_EXIT", []) # Corrected typo
         for idx, client in enumerate(clients):
             client_config = standard_config.copy()
             if idx in forget_clients:
                 print(f"Client {idx} will contribute to unlearning")
                 client_config["UNLEARN_CON"] = "TRUE"
                 if idx in remove_clients:
-                    client_config["REMOVE"] = "TRUE"
+                    client_config["REMOVE"] = "TRUE" # Corrected typo
             fit_configurations.append((client, EvaluateIns(parameters, client_config)))
 
         return fit_configurations
@@ -316,6 +318,11 @@ class FedCustom(FedAvg):
         print(f"Round {server_round}, phase={self.current_phase}")
         print(f"Accuracy: {acc_aggregated:.4f}, Loss: {loss_aggregated:.4f}, MIA: {mia}")
 
+        # Update round_log BEFORE logging to wandb for current round's values
+        self.round_log[4] = loss_aggregated
+        self.round_log[5] = acc_aggregated
+        self.round_log[6] = mia
+
         # Log evaluation metrics to wandb
         wandb.log({
             "round": server_round,
@@ -324,14 +331,10 @@ class FedCustom(FedAvg):
             "val_accuracy": acc_aggregated,
             "mia_score": mia,
             "local_epochs": self.local_epochs,
-            "VAL_LOSS": self.round_log[4],
-            "VAL_ACC": self.round_log[5],
-            "MIA": self.round_log[6]
+            "VAL_LOSS_log": self.round_log[4], # Added _log suffix for clarity
+            "VAL_ACC_log": self.round_log[5],
+            "MIA_log": self.round_log[6]
         })
-
-        self.round_log[4] = loss_aggregated
-        self.round_log[5] = acc_aggregated
-        self.round_log[6] = mia
 
         self.save_round_logs()
 
@@ -403,30 +406,46 @@ def server_fn(context: Context) -> ServerAppComponents:
     """Server factory function with wandb sweep integration."""
     global custom_config
 
-    # Initialize wandb with sweep parameters
-    wandb.init(project="federated_unlearning")
-    # Access sweep parameters
-    lr = wandb.config.lr
-    local_epochs = wandb.config.local_epochs
-    num_rounds = wandb.config.num_rounds
-
-    # Log experiment configuration to wandb
-    wandb.config.update({
-        "experiment": os.environ.get("EXP_ENV_DIR", "default_experiment"),
-        "min_clients": int(custom_config.get("MIN_CLIENTS", 2)),
-        "starting_phase": custom_config.get("STARTING_PHASE", "LEARN"),
-        "model": custom_config.get("MODEL", "unknown_model")
-    })
-
+    # Setup configuration *first* so custom_config is available for wandb.config.update
     custom_config = setup_experiment(os.environ["EXP_ENV_DIR"])
     set_seed(int(custom_config["SEED"]))
     print(custom_config)
 
+    wandb.init(project="federated_unlearning") #TODO
+    lr = wandb.config.get("lr", float(custom_config.get("LR", 0.01)))
+    local_epochs = wandb.config.get("local_epochs", int(custom_config.get("LOCAL_EPOCHS", 1)))
+    num_rounds = wandb.config.get("num_rounds", int(custom_config.get("NUM_ROUNDS", 1)))
+
+    # Log experiment configuration to wandb
+    # Ensure these keys exist in custom_config or provide sensible defaults
+    wandb.config.update({
+        "experiment_dir": os.environ.get("EXP_ENV_DIR", "default_experiment_path"),
+        "min_clients": int(custom_config.get("MIN_CLIENTS", 2)),
+        "starting_phase": custom_config.get("STARTING_PHASE", "LEARN"),
+        "model_name": custom_config.get("MODEL", "unknown_model"),
+        "seed": int(custom_config.get("SEED", 42)),
+        "saving_dir": custom_config.get("SAVING_DIR", "./save"),
+        "client_id_to_forget": custom_config.get("CLIENT_ID_TO_FORGET", []),
+        "client_id_to_exit": custom_config.get("CLIENT_ID_TO_EXIT", []), # Corrected typo
+        "min_epochs": int(custom_config.get("MIN_EPOCHS", 1)),
+        "max_epochs": int(custom_config.get("MAX_EPOCHS", 1)),
+        "teacher": custom_config.get("TEACHER", "no_teacher"),
+        "last_max_steps": custom_config.get("LAST_MAX_STEPS", 0),
+        # Explicitly log the values that are actually being swept
+        "swept_lr": lr,
+        "swept_local_epochs": local_epochs,
+        "swept_num_rounds": num_rounds,
+    })
+
     min_clients = int(custom_config.get("MIN_CLIENTS"))
     starting_phase = custom_config.get("STARTING_PHASE")
 
+    if "LOADED_MODEL" not in custom_config:
+        raise ValueError("LOADED_MODEL not found in custom_config. Ensure setup_experiment loads the model correctly.")
     ndarrays = get_parameters(custom_config["LOADED_MODEL"])
     parameters = ndarrays_to_parameters(ndarrays)
+
+    scheduler = FederatedScheduler(initial_lr=lr)
 
     strategy = FedCustom(
         starting_phase=starting_phase,
@@ -438,7 +457,7 @@ def server_fn(context: Context) -> ServerAppComponents:
         initial_parameters=parameters,
         lr=lr,  # Use swept learning rate
         local_epochs=local_epochs,  # Use swept local epochs
-        scheduler=FederatedScheduler(),
+        scheduler=scheduler, # Pass the initialized scheduler instance
     )
     print(strategy.lr_scheduler)
 
@@ -452,7 +471,7 @@ def server_fn(context: Context) -> ServerAppComponents:
 sweep_config = {
     "method": "grid",  # Grid search for lr, local_epochs, and num_rounds
     "metric": {
-        "name": "val_accuracy",
+        "name": "val_accuracy",  # This name must exactly match a key logged in wandb.log
         "goal": "maximize"
     },
     "parameters": {
@@ -467,6 +486,4 @@ sweep_config = {
         }
     }
 }
-
-# Create the server application
 app = ServerApp(server_fn=server_fn)

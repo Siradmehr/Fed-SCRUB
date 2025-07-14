@@ -5,6 +5,14 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import accuracy_score
 
+import numpy as np
+import torch
+import torch.nn as nn
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.metrics import confusion_matrix
+import random
+
 
 def _calculate_metrics(total_loss, total_correct, total_samples):
     """Calculate average metrics"""
@@ -37,14 +45,6 @@ def _eval_mode(loss, net, loader, device):
 
 
 
-
-import numpy as np
-import torch
-import torch.nn as nn
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import StratifiedShuffleSplit
-from sklearn.metrics import confusion_matrix
-import random
 
 def get_loss_values(model, dataloader, device):
     """Extract loss values from a dataset using the given model."""

@@ -104,12 +104,6 @@ class FedCustom(FedAvg):
         print(f"Round {server_round}: Phase = {self.current_phase}")
         print(f"{len(clients)} clients selected for training")
 
-        # Update learning rate if needed
-        # if (server_round in custom_config["LR_ROUND"]) and self.lr > 0.0001:
-        #     self.lr *= float(custom_config["LR_DECAY_RATE"])
-        #     print(f"UPDATING LEARNING RATE TO {self.lr}")
-
-        print(self.lr_scheduler)
         self.lr = self.lr_scheduler.current_lr
         self.lr_scheduler.update_after_round()
 
@@ -135,7 +129,7 @@ class FedCustom(FedAvg):
                 print(f"Client {idx} will contribute to unlearning")
                 client_config["UNLEARN_CON"] = "TRUE"
                 if idx in remove_clients:
-                    client_config["REMOVE"] = "TURE"
+                    client_config["REMOVE"] = "TRUE"
             fit_configurations.append((client, FitIns(parameters, client_config)))
 
         return fit_configurations

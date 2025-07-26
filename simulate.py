@@ -12,6 +12,7 @@ import sys
 import logging
 from typing import Dict, Any, Optional
 from pathlib import Path
+import wandb
 
 # Configure CUDA environment for better debugging
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
@@ -26,7 +27,7 @@ from flwr.server import ServerApp
 from src.client import client_fn
 from src.server import server_fn
 from src.utils.utils import load_config, set_seed, get_device
-
+import wandb
 
 class SimulationRunner:
     """Handles federated learning simulation setup and execution."""
@@ -41,6 +42,8 @@ class SimulationRunner:
         self.config_path = config_path or os.environ.get("EXP_ENV_DIR")
         self.config: Dict[str, Any] = {}
         self.logger = self._setup_logging()
+        self._load_and_validate_config()
+        self._validate_environment()
 
     def _setup_logging(self) -> logging.Logger:
         """Set up logging configuration."""
@@ -106,13 +109,10 @@ class SimulationRunner:
 
     def _create_apps(self) -> tuple[ServerApp, ClientApp]:
         """Create server and client applications."""
-        try:
-            server_app = ServerApp(server_fn=server_fn)
-            client_app = ClientApp(client_fn=client_fn)
-            self.logger.info("Server and client applications created successfully")
-            return server_app, client_app
-        except Exception as e:
-            raise RuntimeError(f"Failed to create applications: {e}")
+        server_app = ServerApp(server_fn=server_fn)
+        client_app = ClientApp(client_fn=client_fn)
+        self.logger.info("Server and client applications created successfully")
+        return server_app, client_app
 
     def _prepare_backend_config(self) -> Dict[str, Any]:
         """Prepare backend configuration for simulation."""
@@ -148,7 +148,7 @@ class SimulationRunner:
             self.logger.info(f"  - Number of supernodes: {self.config['NUM_SUPERNODES']}")
             self.logger.info(f"  - CPU resources per client: {self.config['CLIENT_RESOURCES_NUM_CPUS']}")
             self.logger.info(f"  - GPU resources per client: {self.config['CLIENT_RESOURCES_NUM_GPUS']}")
-            self.logger.info(f"  - Device: {get_device()}")
+            self.logger.info(f"  - Device: {get_device(config=self.config)}")
 
             # Run simulation
             self.logger.info("Launching simulation...")
@@ -168,16 +168,41 @@ class SimulationRunner:
             self.logger.error(f"Simulation failed: {e}")
             raise
 
+import wandb
+
+def run_exp():
+    """Main entry point for the simulation."""
+    runner = SimulationRunner()
+        # Create server configuration
+    sweep_config = dict(wandb.config)
+    if sweep_config:
+        runner.config.update(sweep_config)
+
+    runner.run()
+
+import argparse
+import yaml
 
 def main():
-    """Main entry point for the simulation."""
-    try:
-        runner = SimulationRunner()
-        runner.run()
-    except Exception as e:
-        print(f"Fatal error: {e}", file=sys.stderr)
-        sys.exit(1)
-
+    runner = SimulationRunner()
+    wandb.init(
+        project="fed-scrub",
+        name=f"server_{os.environ['EXP_ENV_DIR']}",
+    )
+    sweep_config = dict(wandb.config)
+    sweep_config.update(runner.config)
+    wandb.config.update(sweep_config)
+    runner.run()
 
 if __name__ == "__main__":
-    main()
+    # parser = argparse.ArgumentParser(description="Federated Learning Simulation Runner")
+    # parser.add_argument('--sweep', action='store_true', help='Run a wandb sweep using wandb_sweep.yaml')
+    # args = parser.parse_args()
+
+   # if args.sweep:
+    with open("wandb_sweep.yaml") as f:
+        sweep_config = yaml.safe_load(f)
+    sweep_id = wandb.sweep(sweep_config, project="fed-scrub")
+    wandb.agent(sweep_id, function=main)
+    # else:
+    #     main()

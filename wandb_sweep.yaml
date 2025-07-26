@@ -1,0 +1,13 @@
+# Example sweep configuration for wandb
+# You can modify parameters and ranges as needed
+
+method: grid
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  LR:
+    values: [0.1, 0.01, 0.001]
+  BETA:
+    values: [0.0, 0.5, 1.0]
+  # Add more parameters as needed

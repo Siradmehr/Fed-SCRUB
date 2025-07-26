@@ -16,13 +16,13 @@ export EXP_ENV_DIR=./envs
 # Log start of simulation
 echo "Starting simulation at $(date)"
 
-# Ensure git repository is up to date
-echo "Updating git repository..."
-git fetch
-CURRENT_BRANCH=$(git branch --show-current)
-echo "Current branch: $CURRENT_BRANCH"
-git pull origin $CURRENT_BRANCH
-echo "Git repository updated to latest commit"
+# # Ensure git repository is up to date
+# echo "Updating git repository..."
+# git fetch
+# CURRENT_BRANCH=$(git branch --show-current)
+# echo "Current branch: $CURRENT_BRANCH"
+# git pull origin $CURRENT_BRANCH
+# echo "Git repository updated to latest commit"
 
 # Run the simulation
 python3 -m simulate

@@ -34,6 +34,8 @@ from .utils.lr_scheduler import FederatedScheduler
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 os.environ['TORCH_USE_CUDA_DSA'] = "1"
 
+import wandb
+
 
 class FedCustom(FedAvg):
     """Custom Federated Learning strategy with phased learning for unlearning tasks."""
@@ -83,6 +85,7 @@ class FedCustom(FedAvg):
         self.max_logs = pd.DataFrame(
             columns=["MAX_LOSS", "MAX_ACC", "MIA"]
         )
+
 
     def __repr__(self) -> str:
         return "FedCustom"
@@ -398,13 +401,28 @@ def get_parameters(net) -> List[np.ndarray]:
     return [val.cpu().numpy() for _, val in net.state_dict().items()]
 
 import os
-
+def overwite_wandb_config(custom_config):
+    """Overwrite wandb config with custom_config values."""
+    if wandb.run is not None:
+        for key in wandb.config:
+            if key in wandb.config:
+                custom_config[key] = wandb.config[key]
+            else:
+                print(f"Warning: {key} not found in custom_config")
+    else:
+        print("No active wandb run to overwrite config")
+    return custom_config
 def server_fn(context: Context) -> ServerAppComponents:
-    """Server factory function."""
+    
     global custom_config
+    """Server factory function."""
+            
+
 
     # Setup configuration
     custom_config = setup_experiment(os.environ["EXP_ENV_DIR"])
+    custom_config = overwite_wandb_config(custom_config)
+
     set_seed(int(custom_config["SEED"]))
     print(custom_config)
 
@@ -430,13 +448,17 @@ def server_fn(context: Context) -> ServerAppComponents:
         scheduler=FederatedScheduler(),
     )
     print(strategy.lr_scheduler)
-
-    # Create server configuration
+    # wandb.init(
+    #     project="fed-scrub",  # Change to your project name
+    #     name=f"client",  # Unique run name per client
+    #     config=custom_config  # Log your config
+    # )
+    
     config = ServerConfig(num_rounds=num_rounds)
     print("Server configured")
-
+    print(wandb.config)
+    print("server config wandb done")
     return ServerAppComponents(strategy=strategy, config=config)
 
-
-# Create the server application
-app = ServerApp(server_fn=server_fn)
+def create_server_app() -> ServerApp:
+    return ServerApp(server_fn=server_fn)

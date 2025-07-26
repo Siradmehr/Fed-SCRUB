@@ -8,13 +8,12 @@ from typing import Dict, List, Optional, Tuple, Union
 from enum import Enum
 from dataclasses import dataclass
 import logging
-
 import flwr as fl
 from flwr.client import Client, NumPyClient
 from flwr.common import NDArrays, Scalar, Context
 
 from .utils.eval import compute_mia_score
-from .utils.losses import get_losses
+from .utils.losses import get_loss
 from .utils.utils import load_config, load_model, set_seed, get_device, setup_experiment
 from .utils.models import get_model
 from .dataloaders.client_dataloader import load_datasets_with_forgetting
@@ -101,7 +100,7 @@ class LossManager:
     def _get_loss_function(self, loss_type: str):
         """Get loss function based on type"""
         try:
-            return get_losses(loss_type, self.num_classes, self.temperature)
+            return get_loss(loss_type, nclass=self.num_classes, param=[self.temperature])
         except Exception as e:
             logger.error(f"Failed to create loss function {loss_type}: {e}")
             raise
@@ -291,6 +290,7 @@ class FlowerClient(NumPyClient):
         # Move model to device
         self.net.to(self.device)
 
+
         logger.info(f"Client {partition_id} initialized on device: {self.device}")
 
     def get_parameters(self) -> List[np.ndarray]:
@@ -317,9 +317,9 @@ class FlowerClient(NumPyClient):
                 local_epochs=config.get("local_epochs", 1),
                 max_epochs=config.get("max_epochs", 1),
                 min_epochs=config.get("min_epochs", 1),
-                alpha=float(self.config_manager.config.get("ALPHA", 0.5)),
-                beta=float(self.config_manager.config.get("BETA", 0.5)),
-                gamma=float(self.config_manager.config.get("GAMMA", 0.5)),
+                alpha=float(config.get("ALPHA", 0.5)),
+                beta=float(config.get("BETA", 0.5)),
+                gamma=float(config.get("GAMMA", 0.5)),
                 phase=TrainingPhase(config.get("Phase", "LEARN")),
                 remove=config.get("REMOVE", "FALSE") == "TRUE",
                 unlearn_con=config.get("UNLEARN_CON", "FALSE") == "TRUE",

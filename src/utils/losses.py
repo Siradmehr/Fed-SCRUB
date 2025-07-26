@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Optional, Union, Tuple
-
+from typing import List, Optional, Union, Tuple, Callable
 # Consolidated epsilon constants - defined once to avoid dictionary lookups
 EPS_TINY = 1e-6
 EPS_SMALL = 1e-5

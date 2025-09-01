@@ -1,3 +1,5 @@
+import copy
+
 from flwr_datasets import FederatedDataset
 import torch
 import torchvision.transforms as transforms
@@ -26,7 +28,6 @@ from ..utils.utils import np_index_save
 from .transformers_utils import *
 
 def _partition_dataset(dataset, num_partitions, partition_id, shuffle):
-    print(f"number of partition is {num_partitions} id = {partition_id}")
     label_to_indices = defaultdict(lambda : [])
     target_list = dataset.targets
     if type(target_list) != type([0,1]):
@@ -51,7 +52,6 @@ def _partition_dataset(dataset, num_partitions, partition_id, shuffle):
         end_idx = start_idx + part_size
 
         label_partition = indices[start_idx:end_idx]
-        print(f"number of partition is {num_partitions} id = {partition_id} label = {label} | {start_idx}, {part_size}, {end_idx}")
 
         # Optionally shuffle the slice from this label if desired.
         if shuffle:
@@ -99,7 +99,6 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
     if not (0 <= partition_id < num_partitions):
         raise ValueError(f"partition_id must be between 0 and {num_partitions - 1}")
 
-    set_seed(seed)
     trainin_set, full_training_index = _partition_dataset(dataset, num_partitions, partition_id, shuffle)
     test_set, test_index = _partition_dataset(test_dataset, num_partitions, partition_id, shuffle)
     return trainin_set, full_training_index, test_set, test_index
@@ -116,8 +115,11 @@ def load_datasets_with_forgetting(
 ) -> Tuple[Optional[DataLoader], Optional[DataLoader], DataLoader, DataLoader]:
     """
     Load and partition datasets with forgetting functionality and print class distributions.
+
     """
+
     custom_config = setup_experiment(path=os.environ["EXP_ENV_DIR"], load_model_flag=False)
+    set_seed(int(custom_config["SEED"]))
 
     partition, full_training_index, test_set, test_index = configure_balanced_partition(root="./data",
                                              dataset_name=dataset_name,
@@ -157,14 +159,14 @@ def load_datasets_with_forgetting(
             class_counts[item[1]] += 1
         return class_counts
 
-    train_distribution = compute_class_distribution(train_data)
-    val_distribution = compute_class_distribution(val_data)
-    test_distribution = compute_class_distribution(test_data)
-
-    print("Class distributions:")
-    print(f"Train: {train_distribution}")
-    print(f"Val: {val_distribution}")
-    print(f"Test: {test_distribution}")
+    # train_distribution = compute_class_distribution(train_data)
+    # val_distribution = compute_class_distribution(val_data)
+    # test_distribution = compute_class_distribution(test_data)
+    #
+    # print("Class distributions:")
+    # print(f"Train: {train_distribution}")
+    # print(f"Val: {val_distribution}")
+    # print(f"Test: {test_distribution}")
 
     # Now split the train set into retrain and forget sets based on forgetting_config
     class_indices = defaultdict(list)
@@ -186,14 +188,17 @@ def load_datasets_with_forgetting(
     forgetset = Subset(train_data, forget_indices)
     retrainset = Subset(train_data, retrain_indices)
 
-    # Compute forget and retrain distributions
-    forget_distribution = compute_class_distribution(forgetset)
-    retrain_distribution = compute_class_distribution(retrainset)
+    # # Compute forget and retrain distributions
+    # forget_distribution = compute_class_distribution(forgetset)
+    # retrain_distribution = compute_class_distribution(retrainset)
+    #
+    # print(f"Forget set: {forget_distribution}")
+    # print(f"Retrain set: {retrain_distribution}")
 
-    print(f"Forget set: {forget_distribution}")
-    print(f"Retrain set: {retrain_distribution}")
-
+    import copy
     forget_clients = custom_config["CLIENT_ID_TO_FORGET"]
+    print(forget_clients)
+    new_forget_dataset = copy.deepcopy(forgetset)
     if partition_id in forget_clients:
         if custom_config["UNLEARNING_CASE"] == "CONFUSE":
             forgetset = confuse_the_forget_set(forgetset)

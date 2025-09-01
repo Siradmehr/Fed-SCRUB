@@ -357,7 +357,7 @@ class FlowerClient(NumPyClient):
         # Training logic based on phase
         print("Training logic based on phase", training_config.phase)
         if training_config.phase == TrainingPhase.PRETRAIN:
-            return self._handle_learn_phase(training_config, optimizer)
+            return self._handle_pretrain_phase(training_config, optimizer)
         if training_config.phase in [TrainingPhase.LEARN, TrainingPhase.EXACT] and not training_config.remove:
             return self._handle_learn_phase(training_config, optimizer)
         elif training_config.phase == TrainingPhase.MAX and training_config.unlearn_con:
@@ -367,6 +367,31 @@ class FlowerClient(NumPyClient):
         else:
             logger.error("No matching training phase found")
             exit(-1)
+
+    def _handle_pretrain_phase(self, config: TrainingConfig, optimizer) -> Tuple[dict, int]:
+        metrics_retain, samples_retain = self.phase_trainer.train_learn_phase(
+            self.train_loader, config.local_epochs, optimizer
+        )
+
+        metrics_forget, samples_forget = TrainingMetrics(), 0
+        if self.forget_loader:
+            metrics_forget, samples_forget = self.phase_trainer.train_learn_phase(
+                self.forget_loader, config.local_epochs, optimizer
+            )
+
+        total_samples = samples_retain + samples_forget
+        if total_samples > 0:
+            combined_loss = (metrics_retain.loss * samples_retain +
+                             metrics_forget.loss * samples_forget) / total_samples
+            combined_acc = (metrics_retain.accuracy * samples_retain +
+                            metrics_forget.accuracy * samples_forget) / total_samples
+        else:
+            combined_loss = combined_acc = 0
+
+        return {
+            "loss": combined_loss,
+            "accuracy": combined_acc,
+        }, total_samples
 
     def _handle_learn_phase(self, config: TrainingConfig, optimizer) -> Tuple[dict, int]:
         """Handle LEARN phase training"""
@@ -435,7 +460,6 @@ class FlowerClient(NumPyClient):
             metrics = {
                 "train_loss": metrics_dict["loss"],
                 "train_accuracy": metrics_dict["accuracy"],
-                "eval_loss": 0,
             }
 
             logger.info(f"Client {self.partition_id} training completed: {metrics}")
@@ -452,8 +476,8 @@ class FlowerClient(NumPyClient):
         try:
             self.set_parameters(parameters)
             training_config = self._parse_config(config)
+            print(TrainingConfig)
 
-            # Regular evaluation
             loss, accuracy, eval_size = _eval_mode(
                 self.loss_manager.criterion_cls,
                 self.net,
@@ -481,13 +505,12 @@ class FlowerClient(NumPyClient):
             )
 
             metrics = {
-                "accuracy": accuracy,
                 "eval_loss": loss,
                 "eval_acc": accuracy,
                 "eval_size": eval_size,
-                "max_loss": max_loss,
-                "max_acc": max_acc,
-                "max_size": max_size,
+                "forget_loss": max_loss,
+                "forget_acc": max_acc,
+                "forget_size": max_size,
                 "mia_score": mia_score,
             }
 

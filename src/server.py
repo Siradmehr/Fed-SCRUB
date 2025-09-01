@@ -80,8 +80,7 @@ class FedCustom(FedAvg):
         # Initialize logging
 
         self.log_data = pd.DataFrame(
-            columns=["Phase","Iter", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC", "MIA", "MAX_LOSS", "MAX_ACC",
-                     "MIA"]
+            columns=["Phase","Iter","TRAINING_LOSS", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC", "MIA"]
         )
         self.round_log = [0 for i in self.log_data.columns]
 
@@ -106,6 +105,7 @@ class FedCustom(FedAvg):
 
         print(f"Round {server_round}: Phase = {self.current_phase}")
         print(f"{len(clients)} clients selected for training")
+        self.round_log = [0 for i in self.log_data.columns]
 
         self.lr = self.lr_scheduler.current_lr
         self.lr_scheduler.update_after_round()
@@ -179,14 +179,16 @@ class FedCustom(FedAvg):
 
         # Aggregate metrics
         loss, acc = self.aggregate_metrics(results)
-        # Aggregate MAX phase specific metrics
-        metrics_aggregated = self.aggregate_max_metrics(results)
+
+        self.round_log[self.log_data.columns.get_loc("TRAINING_LOSS")] = loss
+        self.round_log[self.log_data.columns.get_loc("TRAINING_ACC")] = acc
+        self.round_log[self.log_data.columns.get_loc("Phase")] = self.current_phase
+        self.round_log[self.log_data.columns.get_loc("Iter")] = server_round
 
         # Save model and logs
         self.save_server_model(parameters_aggregated, server_round)
-        self.save_max_logs(metrics_aggregated)
 
-        return parameters_aggregated, metrics_aggregated
+        return parameters_aggregated, {"train_loss": loss, "train_accuracy": acc}
 
     def aggregate_metrics(self, results: List[Tuple[ClientProxy, FitRes]]) -> Tuple[float, float]:
         """Aggregate training metrics from client results."""
@@ -202,36 +204,6 @@ class FedCustom(FedAvg):
 
         return loss_aggregated, acc_aggregated
 
-    def aggregate_max_metrics(self, results: List[Tuple[ClientProxy, FitRes]]) -> Dict[str, Scalar]:
-        """Aggregate MAX phase specific metrics."""
-        max_loss = weighted_loss_avg([
-            (int(res.metrics["max_size"]), float(res.metrics["max_loss"]))
-            for _, res in results if int(res.metrics["max_size"]) > 0
-        ])
-
-        max_acc = weighted_loss_avg([
-            (int(res.metrics["max_size"]), float(res.metrics["max_acc"]))
-            for _, res in results if int(res.metrics["max_size"]) > 0
-        ])
-
-        # mia = weighted_loss_avg([
-        #     (int(res.metrics["mia_score"]), float(res.metrics["mia_score"]))
-        #     for _, res in results if int(res.metrics["max_size"]) > 0
-        # ])
-
-        return {"maxloss": max_loss, "maxacc": max_acc}
-
-    def save_max_logs(self, metrics: Dict[str, Scalar]) -> None:
-        """Save MAX phase metrics to CSV."""
-        new_log = {
-            "MAX_LOSS": [metrics["maxloss"]],
-            "MAX_ACC": [metrics["maxacc"]],
-            "MIA": 0,
-        }
-
-        new_df = pd.DataFrame(new_log)
-        self.max_logs = pd.concat([self.max_logs, new_df], ignore_index=True)
-        self.max_logs.to_csv(os.path.join(custom_config["SAVING_DIR"], "max_logs.csv"))
 
     def configure_evaluate(
             self, server_round: int, parameters: Parameters, client_manager: ClientManager
@@ -272,12 +244,6 @@ class FedCustom(FedAvg):
 
         return fit_configurations
 
-        # # Create evaluation instructions
-        # config = {"Phase": self.current_phase}
-        # evaluate_ins = EvaluateIns(parameters, config)
-        #
-        # return [(client, evaluate_ins) for client in clients]
-
     def aggregate_evaluate(
             self,
             server_round: int,
@@ -293,64 +259,57 @@ class FedCustom(FedAvg):
             print("No evaluation results to aggregate")
             return None, {}
 
-        # Aggregate loss and accuracy
-        loss_aggregated = weighted_loss_avg([
-            (res.num_examples, res.loss)
-            for _, res in results
+        # Aggregate metrics
+        forget_loss = weighted_loss_avg([
+            (res.metrics["forget_size"], res.metrics["forget_loss"])
+            for _, res in results if res.metrics["forget_size"] > 0
         ])
-
-        acc_aggregated = weighted_loss_avg([
-            (res.num_examples, float(res.metrics["accuracy"]))
-            for _, res in results
+        forget_acc = weighted_loss_avg([
+            (res.metrics["forget_size"], res.metrics["forget_acc"])
+            for _, res in results if res.metrics["forget_size"] > 0
         ])
+        val_loss = weighted_loss_avg([
+            (res.metrics["eval_size"], res.metrics["eval_loss"])
+            for _, res in results if res.metrics["eval_size"] > 0
+        ])
+        val_acc = weighted_loss_avg([
+            (res.metrics["eval_size"], res.metrics["eval_acc"])
+            for _, res in results if res.metrics["eval_size"] > 0
+        ])
+        mia = weighted_loss_avg([
+            (res.metrics["forget_size"], res.metrics["mia_score"])
+            for _, res in results if res.metrics["forget_size"] > 0
+        ]) if any(res.metrics["forget_size"] > 0 for _, res in results) else 0
 
-        mia_list = [
-            (int(res.metrics["max_size"]), float(res.metrics["mia_score"]))
-            for _, res in results if int(res.metrics["max_size"]) > 0
-        ]
-        if len(mia_list) > 0:
-            print(mia_list)
-            mia = weighted_loss_avg(mia_list)
-        else:
-            mia = 0
-
-        print(f"Round {server_round}, phase={self.current_phase}")
-        print(f"Accuracy: {acc_aggregated:.4f}, Loss: {loss_aggregated:.4f}, MIA: {mia}")
-
-        # Store validation metrics
-        self.round_log[4] = loss_aggregated
-        self.round_log[5] = acc_aggregated
-        self.round_log[6] = mia
+        # Log metrics
+        self.round_log[self.log_data.columns.get_loc("FORGET_LOSS")] = forget_loss
+        self.round_log[self.log_data.columns.get_loc("FORGET_ACC")] = forget_acc
+        self.round_log[self.log_data.columns.get_loc("VAL_LOSS")] = val_loss
+        self.round_log[self.log_data.columns.get_loc("VAL_ACC")] = val_acc
+        self.round_log[self.log_data.columns.get_loc("MIA")] = mia
+        self.round_log[self.log_data.columns.get_loc("Phase")] = self.current_phase
+        self.round_log[self.log_data.columns.get_loc("Iter")] = server_round
 
         # Save round logs
         self.save_round_logs()
 
         # Check for best model
-        if acc_aggregated > self.best_acc:
-            self.best_acc = acc_aggregated
-            print(f"New best accuracy: {acc_aggregated:.4f}")
+        if val_acc > self.best_acc:
+            self.best_acc = val_acc
+            print(f"New best accuracy: {val_acc:.4f}")
             self.save_server_model(self.round_model, server_round, is_best=True)
 
         # Update phase for next round
         self.current_phase = self.phase_schedule(self.current_phase, server_round)
 
-        return loss_aggregated, {"acc": acc_aggregated}
+        return val_loss, {"acc": val_acc}
+
 
     def save_round_logs(self) -> None:
         """Save round logs to CSV file."""
-        new_log = {
-            "TRAINING_LOSS": [self.round_log[0]],
-            "TRAINING_ACC": [self.round_log[1]],
-            "FORGET_LOSS": [self.round_log[2]],
-            "FORGET_ACC": [self.round_log[3]],
-            "VAL_LOSS": [self.round_log[4]],
-            "VAL_ACC": [self.round_log[5]],
-            "MIA": [self.round_log[6]],
-        }
-
-        new_df = pd.DataFrame(new_log)
-        self.data_logs = pd.concat([self.data_logs, new_df], ignore_index=True)
-        self.data_logs.to_csv(os.path.join(custom_config["SAVING_DIR"], "logs.csv"))
+        new_df = pd.DataFrame([self.round_log], columns=self.log_data.columns)
+        self.log_data = pd.concat([self.log_data, new_df], ignore_index=True)
+        self.log_data.to_csv(os.path.join(custom_config["SAVING_DIR"], "logs.csv"), index=False)
 
     def evaluate(
             self, server_round: int, parameters: Parameters

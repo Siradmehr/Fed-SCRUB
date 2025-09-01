@@ -8,6 +8,12 @@ then install the required packages:
 ```bash 
 pip install -r requirements.txt
 ```
+
+Then you need to make two directory:
+```bash
+mkdir data
+mkdir checkpoints
+```
 For different scenrios You need to run with different env folder.
 export the EXP_ENV_DIR variable to point to the correct env folder.
 ```bash

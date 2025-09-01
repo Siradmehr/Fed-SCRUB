@@ -44,8 +44,6 @@ def load_config(path: str = "./envs") -> Dict:
     env_path = os.path.join(path, ".env")
     training_path = os.path.join(path, ".env.training")
 
-    print(env_path)
-    print(training_path)
 
     if not os.path.exists(env_path) or not os.path.exists(training_path):
         raise FileNotFoundError(f"Required configuration files missing in {path}")

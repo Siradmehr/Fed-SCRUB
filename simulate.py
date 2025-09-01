@@ -130,8 +130,11 @@ class SimulationRunner:
             self.logger.info("=" * 60)
 
             # Setup and validation
+            self.logger.info("validating config")
             self._load_and_validate_config()
+            self.logger.info("validated config\nvalidating environment")
             self._validate_environment()
+            self.logger.info("validated environment")
 
             # Set random seed if specified
             if "RANDOM_SEED" in self.config:
@@ -183,26 +186,25 @@ def run_exp():
 import argparse
 import yaml
 
+import argparse
+import yaml
+
+
 def main():
-    runner = SimulationRunner()
+
     wandb.init(
         project="fed-scrub",
         name=f"server_{os.environ['EXP_ENV_DIR']}",
     )
-    sweep_config = dict(wandb.config)
-    sweep_config.update(runner.config)
-    wandb.config.update(sweep_config)
+
+    runner = SimulationRunner()
+    # Merge wandb config with runner config
+    final_config = dict(wandb.config)
+    final_config.update(runner.config)
+    wandb.config.update(final_config)
+
     runner.run()
 
-if __name__ == "__main__":
-    # parser = argparse.ArgumentParser(description="Federated Learning Simulation Runner")
-    # parser.add_argument('--sweep', action='store_true', help='Run a wandb sweep using wandb_sweep.yaml')
-    # args = parser.parse_args()
 
-   # if args.sweep:
-    with open("wandb_sweep.yaml") as f:
-        sweep_config = yaml.safe_load(f)
-    sweep_id = wandb.sweep(sweep_config, project="fed-scrub")
-    wandb.agent(sweep_id, function=main)
-    # else:
-    #     main()
+if __name__ == "__main__":
+    main()  # Call main() directly instead of using wandb.agent

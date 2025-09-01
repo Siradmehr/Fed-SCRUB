@@ -49,7 +49,7 @@ class FedCustom(FedAvg):
             min_available_clients: int = 2,
             lr: float = 0.01,
             initial_parameters: Optional[Parameters] = None,
-            starting_phase: str = "LEARN",
+            starting_phase: str = "PRETRAIN",
             scheduler: Optional[FederatedScheduler] = None
     ) -> None:
         """Initialize the FedCustom strategy.
@@ -78,13 +78,13 @@ class FedCustom(FedAvg):
         self.lr = lr  # Default value, will be overridden
         self.lr_scheduler = scheduler
         # Initialize logging
-        self.round_log = [0, 0, 0, 0, 0, 0, 0]
-        self.data_logs = pd.DataFrame(
-            columns=["TRAINING_LOSS", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC", "MIA"]
+
+        self.log_data = pd.DataFrame(
+            columns=["Phase","Iter", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC", "MIA", "MAX_LOSS", "MAX_ACC",
+                     "MIA"]
         )
-        self.max_logs = pd.DataFrame(
-            columns=["MAX_LOSS", "MAX_ACC", "MIA"]
-        )
+        self.round_log = [0 for i in self.log_data.columns]
+
 
 
     def __repr__(self) -> str:
@@ -143,14 +143,15 @@ class FedCustom(FedAvg):
             "LEARN": "LEARN",
             "MAX": "MIN",
             "MIN": "MAX",
-            "EXACT": "EXACT"
+            "EXACT": "EXACT",
+            "PRETRAIN": "PRETRAIN"
         }
 
         # Special case: stay in MIN phase if we've reached LAST_MAX_STEPS
         if custom_config["LAST_MAX_STEPS"] <= round_num and phase == "MIN":
             return "MIN"
 
-        return phase_transitions.get(phase, "LEARN")
+        return phase_transitions.get(phase)
 
     def aggregate_fit(
             self,
@@ -160,6 +161,7 @@ class FedCustom(FedAvg):
     ) -> Tuple[Optional[Parameters], Dict[str, Scalar]]:
         """Aggregate fit results using weighted average."""
         print(f"Aggregating updates from {len(results)} clients, {len(failures)} failures")
+
         if failures:
             print(f"Failures: {failures}")
 
@@ -177,15 +179,6 @@ class FedCustom(FedAvg):
 
         # Aggregate metrics
         loss, acc = self.aggregate_metrics(results)
-
-        # Store metrics based on current phase
-        if self.current_phase == "MAX":
-            self.round_log[2] = loss
-            self.round_log[3] = acc
-        else:
-            self.round_log[0] = loss
-            self.round_log[1] = acc
-
         # Aggregate MAX phase specific metrics
         metrics_aggregated = self.aggregate_max_metrics(results)
 
@@ -448,11 +441,6 @@ def server_fn(context: Context) -> ServerAppComponents:
         scheduler=FederatedScheduler(),
     )
     print(strategy.lr_scheduler)
-    # wandb.init(
-    #     project="fed-scrub",  # Change to your project name
-    #     name=f"client",  # Unique run name per client
-    #     config=custom_config  # Log your config
-    # )
     
     config = ServerConfig(num_rounds=num_rounds)
     print("Server configured")

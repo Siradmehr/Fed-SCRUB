@@ -158,13 +158,15 @@ def setup_experiment(path: str = "./envs", load_model_flag = True) -> Dict:
     """Set up the experiment with configuration, directories, and model."""
     # Load configuration
     config = load_config(path)
-
     # Create saving directory
     saving_directory = os.path.join(
         "./checkpoints",
         config["CONFIG_ID"],
         config["MODEL"],
         config["DATASET"],
+        config["LOSSCLS"],
+        config["LOSSDIV"],
+        config["LOSSKD"],
         f"{config['CONFIG_NUMBER']}_{config['SEED']}"
     )
     os.makedirs(saving_directory, exist_ok=True)

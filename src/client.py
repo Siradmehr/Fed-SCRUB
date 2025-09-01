@@ -11,6 +11,7 @@ import logging
 import flwr as fl
 from flwr.client import Client, NumPyClient
 from flwr.common import NDArrays, Scalar, Context
+from numpy.f2py.auxfuncs import throw_error
 
 from .utils.eval import compute_mia_score
 from .utils.losses import get_loss
@@ -30,6 +31,7 @@ class TrainingPhase(Enum):
     MAX = "MAX"
     MIN = "MIN"
     EXACT = "EXACT"
+    PRETRAIN = "PRETRAIN"
 
 
 @dataclass
@@ -53,8 +55,6 @@ class TrainingMetrics:
     """Container for training metrics"""
     loss: float = 0.0
     accuracy: float = 0.0
-    max_loss: float = 0.0
-    max_accuracy: float = 0.0
     samples: int = 0
 
 
@@ -91,11 +91,11 @@ class LossManager:
     def __init__(self, config: dict):
         self.config = config
         self.num_classes = int(config.get("NUM_CLASSES"))
-        self.temperature = float(config.get("KD_T", 2.0))
+        self.temperature = float(config.get("KD_T"))
 
-        self.criterion_cls = self._get_loss_function(config.get("LOSSCLS", "CE"))
-        self.criterion_div = self._get_loss_function(config.get("LOSSDIV", "KL"))
-        self.criterion_kd = self._get_loss_function(config.get("LOSSKD", "KL"))
+        self.criterion_cls = self._get_loss_function(config.get("LOSSCLS"))
+        self.criterion_div = self._get_loss_function(config.get("LOSSDIV"))
+        self.criterion_kd = self._get_loss_function(config.get("LOSSKD"))
 
     def _get_loss_function(self, loss_type: str):
         """Get loss function based on type"""
@@ -151,7 +151,7 @@ class PhaseTrainer:
                     total_samples += images.size(0)
 
         loss_avg, accuracy = _calculate_metrics(total_loss, total_correct, total_samples)
-        return TrainingMetrics(loss=loss_avg, accuracy=accuracy), total_samples
+        return TrainingMetrics(loss=loss_avg, accuracy=accuracy, samples=total_samples), total_samples
 
     def train_max_phase(self, forget_loader, epochs: int, optimizer) -> Tuple[TrainingMetrics, int]:
         """Train model in MAX phase to maximize divergence on forgotten data"""
@@ -192,7 +192,7 @@ class PhaseTrainer:
                     total_samples += images.size(0)
 
         loss_avg, accuracy = _calculate_metrics(total_loss, total_correct, total_samples)
-        return TrainingMetrics(max_loss=loss_avg, max_accuracy=accuracy), total_samples
+        return TrainingMetrics(loss=loss_avg, accuracy=accuracy, samples=total_samples), total_samples
 
     def train_min_phase(self, retain_loader, forget_loader, epochs: int,
                         optimizer, config: TrainingConfig) -> Tuple[TrainingMetrics, int]:
@@ -226,6 +226,7 @@ class PhaseTrainer:
         if total_samples > 0:
             total_metrics.loss /= total_samples
             total_metrics.accuracy /= total_samples
+        total_metrics.samples = total_samples
 
         return total_metrics, total_samples
 
@@ -345,13 +346,18 @@ class FlowerClient(NumPyClient):
 
     def _train_model(self, training_config: TrainingConfig) -> Tuple[dict, int]:
         """Train model based on configuration"""
+        logger.info(f"Starting training phase: {training_config.phase}")
         optimizer = torch.optim.Adam(
             self.net.parameters(),
             lr=training_config.lr,
             betas=(0.9, 0.999)
         )
 
+
         # Training logic based on phase
+        print("Training logic based on phase", training_config.phase)
+        if training_config.phase == TrainingPhase.PRETRAIN:
+            return self._handle_learn_phase(training_config, optimizer)
         if training_config.phase in [TrainingPhase.LEARN, TrainingPhase.EXACT] and not training_config.remove:
             return self._handle_learn_phase(training_config, optimizer)
         elif training_config.phase == TrainingPhase.MAX and training_config.unlearn_con:
@@ -359,8 +365,8 @@ class FlowerClient(NumPyClient):
         elif training_config.phase == TrainingPhase.MIN and not training_config.remove:
             return self._handle_min_phase(training_config, optimizer)
         else:
-            logger.warning("No matching training phase found")
-            return {"loss": 0, "accuracy": 0, "maxloss": 0, "maxacc": 0}, 0
+            logger.error("No matching training phase found")
+            exit(-1)
 
     def _handle_learn_phase(self, config: TrainingConfig, optimizer) -> Tuple[dict, int]:
         """Handle LEARN phase training"""
@@ -386,8 +392,6 @@ class FlowerClient(NumPyClient):
         return {
             "loss": combined_loss,
             "accuracy": combined_acc,
-            "maxloss": 0,
-            "maxacc": 0
         }, total_samples
 
     def _handle_max_phase(self, config: TrainingConfig, optimizer) -> Tuple[dict, int]:
@@ -397,10 +401,8 @@ class FlowerClient(NumPyClient):
         )
 
         return {
-            "loss": 0,
-            "accuracy": 0,
-            "maxloss": metrics.max_loss,
-            "maxacc": metrics.max_accuracy
+            "loss": metrics.loss,
+            "accuracy": metrics.accuracy,
         }, samples
 
     def _handle_min_phase(self, config: TrainingConfig, optimizer) -> Tuple[dict, int]:
@@ -412,8 +414,6 @@ class FlowerClient(NumPyClient):
         return {
             "loss": metrics.loss,
             "accuracy": metrics.accuracy,
-            "maxloss": 0,
-            "maxacc": 0
         }, samples
 
     def fit(self, parameters: List[np.ndarray], config: dict) -> Tuple[List[np.ndarray], int, dict]:
@@ -436,11 +436,6 @@ class FlowerClient(NumPyClient):
                 "train_loss": metrics_dict["loss"],
                 "train_accuracy": metrics_dict["accuracy"],
                 "eval_loss": 0,
-                "eval_acc": 0,
-                "eval_size": 0,
-                "max_loss": metrics_dict["maxloss"],
-                "max_acc": metrics_dict["maxacc"],
-                "max_size": 0,
             }
 
             logger.info(f"Client {self.partition_id} training completed: {metrics}")

@@ -369,6 +369,7 @@ class FlowerClient(NumPyClient):
             exit(-1)
 
     def _handle_pretrain_phase(self, config: TrainingConfig, optimizer) -> Tuple[dict, int]:
+        print("Handle PRETRAIN phase")
         metrics_retain, samples_retain = self.phase_trainer.train_learn_phase(
             self.train_loader, config.local_epochs, optimizer
         )
@@ -380,6 +381,7 @@ class FlowerClient(NumPyClient):
             )
 
         total_samples = samples_retain + samples_forget
+        print(metrics_retain, metrics_forget)
         if total_samples > 0:
             combined_loss = (metrics_retain.loss * samples_retain +
                              metrics_forget.loss * samples_forget) / total_samples

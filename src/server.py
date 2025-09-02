@@ -310,6 +310,7 @@ class FedCustom(FedAvg):
         new_df = pd.DataFrame([self.round_log], columns=self.log_data.columns)
         self.log_data = pd.concat([self.log_data, new_df], ignore_index=True)
         self.log_data.to_csv(os.path.join(custom_config["SAVING_DIR"], "logs.csv"), index=False)
+        wandb.log(dict(zip(self.log_data.columns, self.round_log)))
 
     def evaluate(
             self, server_round: int, parameters: Parameters

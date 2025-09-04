@@ -385,6 +385,8 @@ def server_fn(context: Context) -> ServerAppComponents:
     # Setup configuration
     custom_config = setup_experiment(os.environ["EXP_ENV_DIR"])
     if custom_config.get("WANDB_MODE", "ON") == "ON":
+        import wandb
+        globals()["wandb"] = wandb
         custom_config = overwite_wandb_config(custom_config)
 
     set_seed(int(custom_config["SEED"]))
@@ -417,8 +419,6 @@ def server_fn(context: Context) -> ServerAppComponents:
     config = ServerConfig(num_rounds=num_rounds)
     print("Server configured")
     if custom_config.get("WANDB_MODE", "ON") == "ON":
-        import wandb
-        globals()["wandb"] = wandb
         print(wandb.config)
     print("server config wandb done")
     return ServerAppComponents(strategy=strategy, config=config)

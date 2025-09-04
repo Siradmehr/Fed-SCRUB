@@ -34,14 +34,21 @@ from .utils.lr_scheduler import FederatedScheduler
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 os.environ['TORCH_USE_CUDA_DSA'] = "1"
 
-import wandb
 
 
+def weighted_loss_avg_custom(results: list[tuple[int, float]]) -> float:
+        """Aggregate evaluation results obtained from multiple clients."""
+        num_total_evaluation_examples = sum(num_examples for (num_examples, _) in results)
+        if num_total_evaluation_examples == 0:
+            return 0.0
+        weighted_losses = [num_examples * loss for num_examples, loss in results]
+        return sum(weighted_losses) / num_total_evaluation_examples
 class FedCustom(FedAvg):
     """Custom Federated Learning strategy with phased learning for unlearning tasks."""
 
     def __init__(
             self,
+            config: Dict = {},
             fraction_fit: float = 1.0,
             fraction_evaluate: float = 1.0,
             min_fit_clients: int = 2,
@@ -64,6 +71,7 @@ class FedCustom(FedAvg):
             starting_phase: Initial learning phase (LEARN, MAX, or MIN)
         """
         super().__init__()
+        self.config = config
         self.fraction_fit = fraction_fit
         self.fraction_evaluate = fraction_evaluate
         self.min_fit_clients = min_fit_clients
@@ -244,6 +252,7 @@ class FedCustom(FedAvg):
 
         return fit_configurations
 
+
     def aggregate_evaluate(
             self,
             server_round: int,
@@ -260,23 +269,23 @@ class FedCustom(FedAvg):
             return None, {}
 
         # Aggregate metrics
-        forget_loss = weighted_loss_avg([
+        forget_loss = weighted_loss_avg_custom([
             (res.metrics["forget_size"], res.metrics["forget_loss"])
             for _, res in results if res.metrics["forget_size"] > 0
         ])
-        forget_acc = weighted_loss_avg([
+        forget_acc = weighted_loss_avg_custom([
             (res.metrics["forget_size"], res.metrics["forget_acc"])
             for _, res in results if res.metrics["forget_size"] > 0
         ])
-        val_loss = weighted_loss_avg([
+        val_loss = weighted_loss_avg_custom([
             (res.metrics["eval_size"], res.metrics["eval_loss"])
             for _, res in results if res.metrics["eval_size"] > 0
         ])
-        val_acc = weighted_loss_avg([
+        val_acc = weighted_loss_avg_custom([
             (res.metrics["eval_size"], res.metrics["eval_acc"])
             for _, res in results if res.metrics["eval_size"] > 0
         ])
-        mia = weighted_loss_avg([
+        mia = weighted_loss_avg_custom([
             (res.metrics["forget_size"], res.metrics["mia_score"])
             for _, res in results if res.metrics["forget_size"] > 0
         ]) if any(res.metrics["forget_size"] > 0 for _, res in results) else 0
@@ -310,7 +319,8 @@ class FedCustom(FedAvg):
         new_df = pd.DataFrame([self.round_log], columns=self.log_data.columns)
         self.log_data = pd.concat([self.log_data, new_df], ignore_index=True)
         self.log_data.to_csv(os.path.join(custom_config["SAVING_DIR"], "logs.csv"), index=False)
-        wandb.log(dict(zip(self.log_data.columns, self.round_log)))
+        if self.config.get("WANDB_MODE", "ON") == "ON":
+            wandb.log(dict(zip(self.log_data.columns, self.round_log)))
 
     def evaluate(
             self, server_round: int, parameters: Parameters
@@ -374,7 +384,8 @@ def server_fn(context: Context) -> ServerAppComponents:
 
     # Setup configuration
     custom_config = setup_experiment(os.environ["EXP_ENV_DIR"])
-    custom_config = overwite_wandb_config(custom_config)
+    if custom_config.get("WANDB_MODE", "ON") == "ON":
+        custom_config = overwite_wandb_config(custom_config)
 
     set_seed(int(custom_config["SEED"]))
     print(custom_config)
@@ -390,6 +401,7 @@ def server_fn(context: Context) -> ServerAppComponents:
 
     # Create strategy
     strategy = FedCustom(
+        config=custom_config,
         starting_phase=starting_phase,
         fraction_fit=1.0,
         fraction_evaluate=1.0,
@@ -404,7 +416,10 @@ def server_fn(context: Context) -> ServerAppComponents:
     
     config = ServerConfig(num_rounds=num_rounds)
     print("Server configured")
-    print(wandb.config)
+    if custom_config.get("WANDB_MODE", "ON") == "ON":
+        import wandb
+        globals()["wandb"] = wandb
+        print(wandb.config)
     print("server config wandb done")
     return ServerAppComponents(strategy=strategy, config=config)
 

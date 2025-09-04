@@ -498,6 +498,7 @@ class FlowerClient(NumPyClient):
                 )
 
             # Calculate MIA score
+            #todo only on forget set of those participating.
             mia_score = compute_mia_score(
                 self.net,
                 self.val_loader,

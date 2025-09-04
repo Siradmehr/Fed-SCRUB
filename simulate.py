@@ -12,7 +12,7 @@ import sys
 import logging
 from typing import Dict, Any, Optional
 from pathlib import Path
-import wandb
+
 
 # Configure CUDA environment for better debugging
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
@@ -27,7 +27,6 @@ from flwr.server import ServerApp
 from src.client import client_fn
 from src.server import server_fn
 from src.utils.utils import load_config, set_seed, get_device
-import wandb
 
 class SimulationRunner:
     """Handles federated learning simulation setup and execution."""
@@ -171,7 +170,6 @@ class SimulationRunner:
             self.logger.error(f"Simulation failed: {e}")
             raise
 
-import wandb
 
 def run_exp():
     """Main entry point for the simulation."""
@@ -191,19 +189,23 @@ import yaml
 
 
 def main():
-
-    wandb.init(
-        project="fed-scrub",
-        name=f"server_{os.environ['EXP_ENV_DIR']}",
-    )
-
     runner = SimulationRunner()
-    # Merge wandb config with runner config
-    final_config = dict(wandb.config)
-    final_config.update(runner.config)
-    wandb.config.update(final_config)
+    print(runner.config.get("WANDB_MODE", "ON"))
+    if runner.config.get("WANDB_MODE", "ON") == "ON":
+        import wandb
+        wandb.init(
+            project="fed-scrub",
+            name=f"server_{os.environ['EXP_ENV_DIR']}",
+        )
+        # Merge wandb config with runner config
+        final_config = dict(wandb.config)
+        final_config.update(runner.config)
+        wandb.config.update(final_config)
 
-    runner.run()
+        runner.run()
+    else:
+        runner.run()
+
 
 
 if __name__ == "__main__":

@@ -157,14 +157,19 @@ def setup_experiment(path: str = "./envs", load_model_flag = True) -> Dict:
     # Load configuration
     config = load_config(path)
     # Create saving directory
+
     saving_directory = os.path.join(
         "./checkpoints",
-        config["CONFIG_ID"],
         config["MODEL"],
         config["DATASET"],
         config["LOSSCLS"],
         config["LOSSDIV"],
         config["LOSSKD"],
+        str(config["CLIENT_ID_TO_FORGET"]),
+        str(config["Client_ID_TO_EXIT"]),
+        str(config["UNLEARNING_CASE"]),
+        str(config["FORGET_CLASS"]).replace(" ", "").replace(":", "-").replace(",", "_").replace("{", "").replace("}", ""),
+        config["CONFIG_ID"],
         f"{config['CONFIG_NUMBER']}_{config['SEED']}"
     )
     os.makedirs(saving_directory, exist_ok=True)

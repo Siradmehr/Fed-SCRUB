@@ -43,6 +43,33 @@ def weighted_loss_avg_custom(results: list[tuple[int, float]]) -> float:
             return 0.0
         weighted_losses = [num_examples * loss for num_examples, loss in results]
         return sum(weighted_losses) / num_total_evaluation_examples
+def weighted_loss_quantile_custom(results: list[tuple[int, float]], tau: float = 0.5) -> float:
+    if not results or not 0 <= tau <= 1:
+        return 0.0
+    
+    weights = [num_examples for num_examples, _ in results]
+    losses = [loss for _, loss in results]
+
+    total_weight = sum(weights)
+    if total_weight <= 0 or any(w < 0 for w in weights):
+        return 0.0
+    weighted_losses = sorted(zip(losses, weights), key=lambda x: x[0])
+
+    target_weight = tau * total_weight
+    cumulative_weight = 0.0
+
+    if tau == 1:
+        return weighted_losses[-1][0]  # Maximum loss
+    if tau == 0:
+        return weighted_losses[0][0]   # Minimum loss
+
+    for i, (loss, weight) in enumerate(weighted_losses):
+        cumulative_weight += weight
+        if cumulative_weight > target_weight:
+            return loss
+        elif cumulative_weight == target_weight and i < len(weighted_losses) - 1:
+            return (loss + weighted_losses[i + 1][0]) / 2
+    return weighted_losses[-1][0]
 class FedCustom(FedAvg):
     """Custom Federated Learning strategy with phased learning for unlearning tasks."""
 

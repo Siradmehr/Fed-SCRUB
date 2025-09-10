@@ -88,7 +88,7 @@ class FedCustom(FedAvg):
         # Initialize logging
 
         self.log_data = pd.DataFrame(
-            columns=["Phase","Iter","TRAINING_LOSS", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC", "MIA"]
+            columns=["Phase","Iter","TRAINING_LOSS", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC", "MIA", "IC_ERR", "FGT_ERR"]
         )
         self.round_log = [0 for i in self.log_data.columns]
 
@@ -285,8 +285,20 @@ class FedCustom(FedAvg):
             (res.metrics["eval_size"], res.metrics["eval_acc"])
             for _, res in results if res.metrics["eval_size"] > 0
         ])
+
+
         mia = weighted_loss_avg_custom([
             (res.metrics["forget_size"], res.metrics["mia_score"])
+            for _, res in results if res.metrics["forget_size"] > 0
+        ]) if any(res.metrics["forget_size"] > 0 for _, res in results) else 0
+
+        ic = weighted_loss_avg_custom([
+            (res.metrics["forget_size"], res.metrics["ic"])
+            for _, res in results if res.metrics["forget_size"] > 0
+        ]) if any(res.metrics["forget_size"] > 0 for _, res in results) else 0
+
+        fgt = weighted_loss_avg_custom([
+            (res.metrics["forget_size"], res.metrics["fgt"])
             for _, res in results if res.metrics["forget_size"] > 0
         ]) if any(res.metrics["forget_size"] > 0 for _, res in results) else 0
 
@@ -298,6 +310,8 @@ class FedCustom(FedAvg):
         self.round_log[self.log_data.columns.get_loc("MIA")] = mia
         self.round_log[self.log_data.columns.get_loc("Phase")] = self.current_phase
         self.round_log[self.log_data.columns.get_loc("Iter")] = server_round
+        self.round_log[self.log_data.columns.get_loc("IC_ERR")] = ic
+        self.round_log[self.log_data.columns.get_loc("FGT_ERR")] = fgt
 
         # Save round logs
         self.save_round_logs()

@@ -112,7 +112,7 @@ def load_datasets_with_forgetting(
         shuffle: bool = True,
         forgetting_config: Dict = {},
         dataset_name: str = "cifar10"
-) -> Tuple[Optional[DataLoader], Optional[DataLoader], DataLoader, DataLoader]:
+) -> Tuple[Optional[DataLoader], Optional[DataLoader], DataLoader, DataLoader, DataLoader]:
     """
     Load and partition datasets with forgetting functionality and print class distributions.
 
@@ -201,7 +201,7 @@ def load_datasets_with_forgetting(
     new_forget_dataset = copy.deepcopy(forgetset)
     if partition_id in forget_clients:
         if custom_config["UNLEARNING_CASE"] == "CONFUSE":
-            forgetset = confuse_the_forget_set(forgetset)
+            forgetset = confuse_the_forget_set(forgetset, custom_config["MAP_CONFUSE"])
         elif custom_config["UNLEARNING_CASE"] == "BACKDOOR":
             forgetset = backdoor_the_forget_set(forgetset)
 
@@ -213,8 +213,10 @@ def load_datasets_with_forgetting(
     val_batch = custom_config["VAL_BATCH"]
     test_batch = custom_config["TEST_BATCH"]
 
+
     retrainloader = DataLoader(retrainset, batch_size=retrain_batch, shuffle=True) if len(retrainset) > 0 else None
     forgetloader = DataLoader(forgetset, batch_size=forget_batch, shuffle=True) if len(forgetset) > 0 else None
+    original_forget_loader = DataLoader(new_forget_dataset, batch_size=forget_batch, shuffle=True) if len(new_forget_dataset) > 0 else None
     valloader = DataLoader(val_data, batch_size=val_batch, shuffle=True)
     testloader = DataLoader(test_data, batch_size=test_batch, shuffle=True)
 
@@ -228,5 +230,5 @@ def load_datasets_with_forgetting(
                   partition_id=partition_id)
 
 
-    return retrainloader, forgetloader, valloader, testloader
+    return retrainloader, forgetloader, valloader, testloader, original_forget_loader
 

@@ -139,6 +139,45 @@ def _add_square_trigger(x, trigger_size: Optional[int] = None, trigger_value: Op
 
 # ---------- Datasets
 
+from typing import Optional, Mapping, Callable, Union, List, Dict
+import torch
+from torch.utils.data import Dataset, Subset
+
+
+
+from typing import Mapping, Dict
+import torch
+from torch.utils.data import Dataset, Subset
+
+from typing import Mapping, Dict
+import torch
+from torch.utils.data import Dataset, Subset
+
+class MapLabelWrapper(Dataset):
+    """
+    Wrap a Subset and return (x, mapped_label) for each item.
+    Only labels present in `mapping` are changed; all others are left unchanged.
+    Example mapping: {1: 2, 3: 5}  -> 1→2, 3→5, everything else stays the same.
+    """
+    def __init__(self, subset: Subset, mapping: Mapping[int, int]):
+        assert isinstance(subset, Subset), "Pass a torch.utils.data.Subset"
+        self.subset = subset
+        # make a plain dict to avoid surprises
+        self.mapping: Dict[int, int] = dict(mapping)
+
+    def __len__(self):
+        return len(self.subset)
+
+    def __getitem__(self, idx):
+        x, y = self.subset[idx]
+        # normalize to int
+        if isinstance(y, torch.Tensor):
+            y = int(y.item())
+        else:
+            y = int(y)
+        y_mapped = self.mapping.get(y, y)
+        return x, y_mapped
+
 class RandomLabelWrapper(Dataset):
     """Wrap a Subset and return (x, randomized_label) for each item."""
     def __init__(self, subset: Subset, num_classes: Optional[int] = None, seed: Optional[int] = None):
@@ -200,12 +239,14 @@ class BackdoorWrapper(Dataset):
 
 # ---------- Public factory functions (drop-in replacements)
 
-def confuse_the_forget_set(forget_set: Subset, num_classes: Optional[int] = None, seed: Optional[int] = None) -> Dataset:
+def confuse_the_forget_set(forget_set: Subset, confuse_map = None, num_classes: Optional[int] = None, seed: Optional[int] = None) -> Dataset:
     """
     Return a dataset that serves the same samples as `forget_set` but with randomized labels.
     Labels are uniformly sampled from [0, num_classes) and guaranteed to differ from the original.
     """
-    return RandomLabelWrapper(forget_set, num_classes=num_classes, seed=seed)
+    #if confuse_map:
+    return MapLabelWrapper(forget_set, mapping=confuse_map)
+    #return RandomLabelWrapper(forget_set, num_classes=num_classes, seed=seed)
 
 
 def backdoor_the_forget_set(

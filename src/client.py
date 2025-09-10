@@ -18,7 +18,7 @@ from .utils.losses import get_loss
 from .utils.utils import load_config, load_model, set_seed, get_device, setup_experiment
 from .utils.models import get_model
 from .dataloaders.client_dataloader import load_datasets_with_forgetting
-from .utils.eval import _calculate_metrics, _eval_mode
+from .utils.eval import _calculate_metrics, _eval_mode, eval_ic_fgt
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -272,7 +272,7 @@ class FlowerClient(NumPyClient):
     """Improved Flower client for federated unlearning"""
 
     def __init__(self, net: nn.Module, partition_id: int, config_manager: ConfigManager,
-                 train_loader, val_loader, forget_loader, test_loader):
+                 train_loader, val_loader, forget_loader, test_loader, original_forget_loader):
         self.net = net
         self.partition_id = partition_id
         self.config_manager = config_manager
@@ -283,6 +283,7 @@ class FlowerClient(NumPyClient):
         self.val_loader = val_loader
         self.forget_loader = forget_loader
         self.test_loader = test_loader
+        self.original_forget_loader = original_forget_loader  # Keep original for evaluation
 
         # Initialize components
         self.loss_manager = LossManager(config_manager.config)
@@ -488,8 +489,9 @@ class FlowerClient(NumPyClient):
             )
 
             # Evaluate on forgotten data
-            max_loss, max_acc, max_size = 0, 0, 0
-            if training_config.unlearn_con and self.forget_loader:
+            max_loss, max_acc, max_size, mia_score = 0, 0, 0, 0
+            ic_micro, fgt_micro = 0, 0
+            if training_config.unlearn_con and self.forget_loader and len(self.forget_loader) > 0:
                 max_loss, max_acc, max_size = _eval_mode(
                     self.loss_manager.criterion_cls,
                     self.net,
@@ -497,15 +499,24 @@ class FlowerClient(NumPyClient):
                     self.device
                 )
 
-            # Calculate MIA score
-            #todo only on forget set of those participating.
-            mia_score = compute_mia_score(
-                self.net,
-                self.val_loader,
-                self.forget_loader,
-                self.device,
-                self.config_manager.config["SEED"]
-            )
+                results_fgt = eval_ic_fgt(
+                    self.net, self.original_forget_loader, device=self.device, num_classes=10,
+                    confuse_map=self.config_manager.config["MAP_CONFUSE"],
+                    loss_fn=self.loss_manager.criterion_cls
+                )
+                ic_micro = results_fgt["IC_ERR_micro"]
+                fgt_micro = results_fgt["FGT_ERR_micro"]
+
+
+                # Calculate MIA score
+                #todo only on forget set of those participating.
+                mia_score = compute_mia_score(
+                    self.net,
+                    self.val_loader,
+                    self.forget_loader,
+                    self.device,
+                    self.config_manager.config["SEED"]
+                )
 
             metrics = {
                 "eval_loss": loss,
@@ -515,6 +526,8 @@ class FlowerClient(NumPyClient):
                 "forget_acc": max_acc,
                 "forget_size": max_size,
                 "mia_score": mia_score,
+                "ic": ic_micro,
+                "fgt": fgt_micro,
             }
 
             logger.info(f"Client {self.partition_id} evaluation completed: {metrics}")
@@ -551,7 +564,7 @@ def client_fn(context: Context) -> Client:
         forget_set_config.update(custom_config.get("FORGET_CLASS", {}))
 
         # Load datasets
-        train_loader, forget_loader, val_loader, test_loader = load_datasets_with_forgetting(
+        train_loader, forget_loader, val_loader, test_loader, original_forget_loader = load_datasets_with_forgetting(
             partition_id,
             num_partitions,
             dataset_name=custom_config["DATASET"],
@@ -566,7 +579,8 @@ def client_fn(context: Context) -> Client:
             train_loader,
             val_loader,
             forget_loader,
-            test_loader
+            test_loader,
+            original_forget_loader
         ).to_client()
 
     except Exception as e:

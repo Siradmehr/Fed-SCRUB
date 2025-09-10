@@ -58,6 +58,9 @@ def load_config(path: str = "./envs") -> Dict:
     if "FORGET_CLASS" in config:
         config["FORGET_CLASS"] = literal_eval(config["FORGET_CLASS"])
 
+    if "MAP_CONFUSE" in config:
+        config["MAP_CONFUSE"] = literal_eval(config["MAP_CONFUSE"])
+
     # Convert integer keys
     for key in INT_KEYS:
         if key in config:

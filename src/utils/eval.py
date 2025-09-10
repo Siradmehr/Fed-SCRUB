@@ -14,6 +14,135 @@ from sklearn.metrics import confusion_matrix
 import random
 
 
+
+import torch
+from typing import Dict, Tuple, Iterable, Optional
+
+@torch.no_grad()
+def eval_ic_fgt(
+    net,
+    loader,
+    device,
+    num_classes: int,
+    confuse_map: Dict[int, int],
+    loss_fn: Optional[torch.nn.Module] = None,
+    normalize_fgt: bool = True,   # True -> rate; False -> raw count per Eq.(7)
+):
+    """
+    Compute IC-ERR and FGT-ERR for all confused pairs defined in `confuse_map`.
+
+    Args:
+        net: model
+        loader: DataLoader providing (images, labels)
+        device: torch device
+        num_classes: total number of classes
+        confuse_map: e.g. {0:1, 1:0, 2:3, 3:2, ...}
+        loss_fn: optional, to also return avg loss
+        normalize_fgt: if True, report FGT-ERR as a rate; if False, raw counts
+
+    Returns:
+        dict with:
+          - loss, accuracy
+          - confusion_matrix (num_classes x num_classes, cpu long tensor)
+          - IC_ERR_per_pair {(A,B): float}
+          - FGT_ERR_per_pair {(A,B): float}
+          - IC_ERR_macro (mean over pairs), IC_ERR_micro (weighted by pair size)
+          - FGT_ERR_macro, FGT_ERR_micro (if normalize_fgt=True)
+    """
+    net.eval()
+    cm = torch.zeros((num_classes, num_classes), dtype=torch.long)  # on CPU
+
+    total_loss = 0.0
+    total = 0
+    correct = 0
+
+    for images, labels in loader:
+        images = images.to(device)
+        labels = labels.to(device)
+
+        logits = net(images)
+        if loss_fn is not None:
+            total_loss += loss_fn(logits, labels).item() * labels.size(0)
+
+        preds = logits.argmax(dim=1)
+        correct += (preds == labels).sum().item()
+        total += labels.size(0)
+
+        # Update confusion matrix efficiently
+        idx = (labels * num_classes + preds).to(torch.long)
+        cm += torch.bincount(
+            idx, minlength=num_classes * num_classes
+        ).view(num_classes, num_classes).cpu()
+
+    per_class_totals = cm.sum(dim=1)  # |D_A| per class (row sums)
+
+    # Build unique unordered pairs from confuse_map (avoid double counting)
+    seen = set()
+    pairs: Iterable[Tuple[int, int]] = []
+    for a, b in confuse_map.items():
+        if a == b:
+            continue
+        key = tuple(sorted((int(a), int(b))))
+        if key not in seen:
+            seen.add(key)
+            pairs.append(key)
+
+    # Compute metrics per pair + macro/micro aggregates
+    IC_ERR_per_pair: Dict[Tuple[int, int], float] = {}
+    FGT_ERR_per_pair: Dict[Tuple[int, int], float] = {}
+
+    ic_weighted_sum = 0.0
+    fgt_weighted_sum = 0.0
+    total_weight = 0
+
+    for A, B in pairs:
+        # IC-ERR numerator: all mistakes made by A + all mistakes made by B
+        mistakes_A = int(cm[A, :].sum().item() - cm[A, A].item())
+        mistakes_B = int(cm[B, :].sum().item() - cm[B, B].item())
+        denom = int(per_class_totals[A].item() + per_class_totals[B].item())
+
+        ic_val = (mistakes_A + mistakes_B) / denom if denom > 0 else float("nan")
+        IC_ERR_per_pair[(A, B)] = ic_val
+
+        # FGT-ERR: cross-confusions only
+        fgt_count = int(cm[A, B].item() + cm[B, A].item())
+        fgt_val = (fgt_count / denom) if (normalize_fgt and denom > 0) else (
+            float("nan") if normalize_fgt else fgt_count
+        )
+        FGT_ERR_per_pair[(A, B)] = fgt_val
+
+        ic_weighted_sum += ic_val * denom if denom > 0 else 0.0
+        if normalize_fgt and denom > 0:
+            fgt_weighted_sum += fgt_val * denom
+        elif not normalize_fgt:
+            fgt_weighted_sum += fgt_count
+        total_weight += denom
+
+    macro_ic = (sum(IC_ERR_per_pair.values()) / len(IC_ERR_per_pair)) if IC_ERR_per_pair else None
+    micro_ic = (ic_weighted_sum / total_weight) if total_weight > 0 else None
+
+    if normalize_fgt:
+        macro_fgt = (sum(FGT_ERR_per_pair.values()) / len(FGT_ERR_per_pair)) if FGT_ERR_per_pair else None
+        micro_fgt = (fgt_weighted_sum / total_weight) if total_weight > 0 else None
+    else:
+        # counts don't have a meaningful "macro average" as a rate; we still provide sums
+        macro_fgt = None
+        micro_fgt = fgt_weighted_sum  # total cross-confusion count across pairs
+
+    results = {
+        "loss": (total_loss / total) if (loss_fn is not None and total > 0) else None,
+        "accuracy": (correct / total) if total > 0 else None,
+        "confusion_matrix": cm,  # rows: true, cols: predicted
+        "IC_ERR_per_pair": IC_ERR_per_pair,
+        "FGT_ERR_per_pair": FGT_ERR_per_pair,
+        "IC_ERR_macro": macro_ic,
+        "IC_ERR_micro": micro_ic,
+        "FGT_ERR_macro": macro_fgt,
+        "FGT_ERR_micro": micro_fgt,
+    }
+    return results
+
+
 def _calculate_metrics(total_loss, total_correct, total_samples):
     """Calculate average metrics"""
     avg_loss = total_loss / total_samples if total_samples > 0 else 0.0
@@ -42,7 +171,6 @@ def _eval_mode(loss, net, loader, device):
 
     avg_loss, accuracy = _calculate_metrics(total_loss, total_correct, total_samples)
     return avg_loss, accuracy, total_samples
-
 
 
 

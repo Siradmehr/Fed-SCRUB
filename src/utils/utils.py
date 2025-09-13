@@ -155,12 +155,8 @@ def np_index_load(config, partition_id=None) -> tuple:
         return indexes_dict
 
 
-def setup_experiment(path: str = "./envs", load_model_flag = True) -> Dict:
-    """Set up the experiment with configuration, directories, and model."""
-    # Load configuration
-    config = load_config(path)
-    # Create saving directory
 
+def generate_save_path(config):
     saving_directory = os.path.join(
         "./checkpoints",
         config["MODEL"],
@@ -175,6 +171,15 @@ def setup_experiment(path: str = "./envs", load_model_flag = True) -> Dict:
         config["CONFIG_ID"],
         f"{config['CONFIG_NUMBER']}_{config['SEED']}"
     )
+    return saving_directory
+
+def setup_experiment(path: str = "./envs", load_model_flag = True) -> Dict:
+    """Set up the experiment with configuration, directories, and model."""
+    # Load configuration
+    config = load_config(path)
+    # Create saving directory
+
+    saving_directory = generate_save_path(config)
     os.makedirs(saving_directory, exist_ok=True)
     config["SAVING_DIR"] = saving_directory
 

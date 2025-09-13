@@ -1,0 +1,31 @@
+
+import os
+from ..utils.utils import load_config, generate_save_path
+
+EXCLUDE = ["sanity_check", "test"]
+
+def gen_res_path(root_path):
+    """Yield (dirpath, config) for folders with .env, .env.training, and both model checkpoints, excluding EXCLUDE."""
+    for dirpath, dirnames, filenames in os.walk(root_path):
+        # Skip if any exclude string is in the path
+        if any(ex in dirpath for ex in EXCLUDE):
+            continue
+
+        if len(filenames) == 0:
+            continue
+
+        if ".env" in filenames[0] and ".env.training" in filenames[1]:
+            config = load_config(dirpath)
+            config["SAVING_DIR"] = generate_save_path(config)
+            save_dir = os.path.join(config["SAVING_DIR"], "models_chkpts")
+            filename_best = os.path.join(save_dir, "model_best.pth")
+            filename_latest = os.path.join(save_dir, "model_latest.pth")
+            if os.path.isfile(filename_best) and os.path.isfile(filename_latest):
+                print("Loaded config from:", dirpath)
+                print(filename_best)
+                print(filename_latest)
+            else:
+                print("Failed to find model checkpoints in:", dirpath)
+
+
+gen_res_path("./envs/ICLR")

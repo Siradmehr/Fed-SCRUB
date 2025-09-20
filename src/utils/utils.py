@@ -159,6 +159,7 @@ def np_index_load(config, partition_id=None) -> tuple:
 def generate_save_path(config):
     saving_directory = os.path.join(
         "./checkpoints",
+        config["STARTING_PHASE"],
         config["MODEL"],
         config["DATASET"],
         config["LOSSCLS"],

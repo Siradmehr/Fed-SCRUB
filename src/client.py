@@ -362,8 +362,10 @@ class FlowerClient(NumPyClient):
         elif training_config.phase == TrainingPhase.MIN and not training_config.remove:
             return self._handle_min_phase(training_config, optimizer)
         else:
-            logger.error("No matching training phase found")
-            exit(-1)
+            return {
+            "loss": 0,
+            "accuracy": 0,
+        }, 0
 
     def _handle_pretrain_phase(self, config: TrainingConfig, optimizer) -> Tuple[dict, int]:
         print("Handle PRETRAIN phase")

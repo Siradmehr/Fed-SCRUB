@@ -8,16 +8,10 @@ from typing import Dict, List, Optional, Tuple, Union
 from enum import Enum
 from dataclasses import dataclass
 import logging
-import flwr as fl
-from Crypto.SelfTest.Hash.test_cSHAKE import custom
 from flwr.client import Client, NumPyClient
 from flwr.common import NDArrays, Scalar, Context
-from numpy.f2py.auxfuncs import throw_error
-
-from .utils.eval import compute_mia_score
 from .utils.losses import get_loss
 from .utils.utils import load_config, load_model, set_seed, get_device, setup_experiment
-from .utils.models import get_model
 from .dataloaders.client_dataloader import load_datasets_with_forgetting
 from .utils.eval import _calculate_metrics, _eval_mode, eval_ic_fgt
 from .utils.eval import compute_mia_score_scrub

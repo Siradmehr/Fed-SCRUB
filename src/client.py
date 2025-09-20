@@ -9,6 +9,7 @@ from enum import Enum
 from dataclasses import dataclass
 import logging
 import flwr as fl
+from Crypto.SelfTest.Hash.test_cSHAKE import custom
 from flwr.client import Client, NumPyClient
 from flwr.common import NDArrays, Scalar, Context
 from numpy.f2py.auxfuncs import throw_error
@@ -19,6 +20,7 @@ from .utils.utils import load_config, load_model, set_seed, get_device, setup_ex
 from .utils.models import get_model
 from .dataloaders.client_dataloader import load_datasets_with_forgetting
 from .utils.eval import _calculate_metrics, _eval_mode, eval_ic_fgt
+from .utils.eval import compute_mia_score_scrub
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -510,7 +512,7 @@ class FlowerClient(NumPyClient):
 
                 # Calculate MIA score
                 #todo only on forget set of those participating.
-                mia_score = compute_mia_score(
+                mia_score = compute_mia_score_scrub(
                     self.net,
                     self.val_loader,
                     self.forget_loader,
@@ -557,8 +559,8 @@ def client_fn(context: Context) -> Client:
         logger.info(f"Initializing Client {partition_id} / {num_partitions}")
 
         # Create model
-        net = get_model(custom_config["MODEL"])
-
+        # net = get_model(custom_config["MODEL"]
+        net = custom_config["LOADED_MODEL"]
         # Set up forget class configuration
         forget_set_config = {i: 0.0 for i in range(int(custom_config["NUM_CLASSES"]))}
         forget_set_config.update(custom_config.get("FORGET_CLASS", {}))

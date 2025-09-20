@@ -251,6 +251,69 @@ def evaluate_attack_model(features, labels, seed, n_splits=5):
     
     return np.mean(scores)
 
+import numpy as np
+from sklearn.metrics import roc_auc_score, roc_curve, accuracy_score, balanced_accuracy_score
+
+def compute_mia_score_auc(model, val_loader, forget_loader, device, seed):
+    """
+    Loss-based membership inference:
+    - Reports ROC-AUC (higher is more leakage), advantage, and accuracy/balanced-accuracy at a held-out threshold.
+    - Returns a dict of metrics.
+    """
+    if forget_loader is None:
+        return {"auc": 0.5, "advantage": 0.0, "acc": 0.5, "bacc": 0.5, "threshold": None}
+
+    # Compute per-sample losses (get_loss_values should set model.eval() & torch.no_grad())
+    val_losses = get_loss_values(model, val_loader, device)      # shape [Nv]
+    forget_losses = get_loss_values(model, forget_loader, device) # shape [Nf]
+
+    # Sanity checks
+    if len(val_losses) == 0 or len(forget_losses) == 0:
+        return {"auc": 0.5, "advantage": 0.0, "acc": 0.5, "bacc": 0.5, "threshold": None}
+
+    # Optional: mild winsorization instead of hard clipping
+    def winsorize(x, p=0.01):
+        lo, hi = np.quantile(x, [p, 1-p])
+        return np.clip(x, lo, hi)
+    val_losses = winsorize(np.asarray(val_losses, dtype=float))
+    forget_losses = winsorize(np.asarray(forget_losses, dtype=float))
+
+    # Labels: 0 = non-member (val), 1 = member (forget)
+    X = np.concatenate([val_losses, forget_losses])
+    y = np.concatenate([np.zeros(len(val_losses), dtype=int),
+                        np.ones(len(forget_losses), dtype=int)])
+
+    # Score for ROC: lower loss => more likely member, so use negative loss as a "membership score"
+    s = -X
+
+    # Primary metric: AUC (0.5 means no leakage)
+    auc = roc_auc_score(y, s)
+    advantage = 2*auc - 1
+
+    # Find threshold on a held-out split using Youden's J
+    rng = np.random.default_rng(int(seed))
+    idx = rng.permutation(len(X))
+    split = len(X) // 2
+    tr, te = idx[:split], idx[split:]
+
+    fpr, tpr, thr = roc_curve(y[tr], s[tr])
+    j = np.argmax(tpr - fpr)
+    tau = thr[j]  # threshold on score s = -loss
+
+    y_pred = (s[te] >= tau).astype(int)
+    acc = accuracy_score(y[te], y_pred)
+    bacc = balanced_accuracy_score(y[te], y_pred)
+
+    return {
+        "auc": float(auc),
+        "advantage": float(advantage),
+        "acc": float(acc),
+        "bacc": float(bacc),
+        "threshold": float(tau),
+        "n_val": int(len(val_losses)),
+        "n_forget": int(len(forget_losses)),
+    }
+
 def compute_mia_score(model, val_loader, forget_loader, device, seed):
     """
     Compute membership inference attack score.
@@ -306,5 +369,61 @@ def compute_mia_score(model, val_loader, forget_loader, device, seed):
     print(f"MIA Score: {score:.4f}")
     return score
 
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.metrics import confusion_matrix
+import random
+
+def evaluate_attack_model_scrub(features, members, n_splits=5, random_state=None):
+    """Return mean and std CV accuracy of the attack model."""
+    attack_model = LogisticRegression()
+    cv = StratifiedShuffleSplit(n_splits=n_splits, random_state=random_state)
+    # You can keep scoring=cm_score if you want the printouts; accuracy is simpler.
+    scores = cross_val_score(attack_model, features, members, cv=cv, scoring='accuracy')
+    return scores.mean(), scores.std()
+
+def compute_mia_score_scrub(model, val_loader, forget_loader, device, seed):
+    if (forget_loader is None) or len(forget_loader) == 0:
+        return 0.0
+
+    import numpy as np, random, torch
+    np.random.seed(int(seed))
+    random.seed(int(seed))
+    torch.manual_seed(int(seed))
+
+    # (Optional) match class filtering used in membership_inference_attack:
+    # keep only classes present in forget_loader in the val set
+    fgt_cls = set(getattr(forget_loader.dataset, 'targets', []))
+    if fgt_cls:
+        keep = [i for i, y in enumerate(getattr(val_loader.dataset, 'targets', [])) if y in fgt_cls]
+        if len(keep):
+            val_loader.dataset.data = val_loader.dataset.data[keep]
+            val_loader.dataset.targets = [val_loader.dataset.targets[i] for i in keep]
+
+    # Get per-sample losses (must be reduction='none' on logits to match)
+    val_losses = np.asarray(get_loss_values(model, val_loader, device))
+    forget_losses = np.asarray(get_loss_values(model, forget_loader, device))
+
+    # Balance
+    m, n = len(forget_losses), len(val_losses)
+    rng = np.random.default_rng(int(seed))
+    if m > n:
+        forget_losses = rng.choice(forget_losses, n, replace=False)
+    elif n > m:
+        val_losses = rng.choice(val_losses, m, replace=False)
+
+    # Clip
+    val_losses    = np.clip(val_losses,   -100, 100)
+    forget_losses = np.clip(forget_losses, -100, 100)
+
+    # Build features/labels
+    X = np.concatenate([val_losses, forget_losses]).reshape(-1, 1)
+    y = np.concatenate([np.zeros(len(val_losses)), np.ones(len(forget_losses))]).astype(int)
+
+    # Evaluate
+    mean_acc, std_acc = evaluate_attack_model_scrub(X, y, n_splits=5, random_state=int(seed))
+    print(f"MIA Accuracy (CV): {mean_acc:.4f} ± {std_acc:.4f}")
+    return float(mean_acc)
 # Example usage:
 # score = compute_mia_score(model, val_loader, forget_loader, device)

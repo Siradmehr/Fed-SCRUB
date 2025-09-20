@@ -543,7 +543,7 @@ def client_fn(context: Context) -> Client:
         # Set up experiment
         custom_config = setup_experiment(
             path=os.environ["EXP_ENV_DIR"],
-            load_model_flag=False
+            load_model_flag=True
         )
         set_seed(int(custom_config["SEED"]))
 
@@ -554,6 +554,7 @@ def client_fn(context: Context) -> Client:
 
         # Create model
         # net = get_model(custom_config["MODEL"]
+
         net = custom_config["LOADED_MODEL"]
         # Set up forget class configuration
         forget_set_config = {i: 0.0 for i in range(int(custom_config["NUM_CLASSES"]))}

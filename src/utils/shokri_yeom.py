@@ -1,4 +1,38 @@
-import torch
+# ...existing code...
+
+if __name__ == "__main__":
+    # Load config and setup experiment
+    config_path = os.environ["EXP_ENV_DIR"]
+    config = load_config(config_path)
+    set_seed(int(config["SEED"]))
+    device = get_device(config)
+
+    custom_config = setup_experiment(
+        path=config_path,
+        load_model_flag=True
+    )
+
+    # Get partition information
+    partition_id = custom_config["partition-id"]
+    num_partitions = custom_config["num-partitions"]
+
+    net = custom_config["LOADED_MODEL"]
+    forget_set_config = custom_config.get("FORGET_CLASS", {})
+    train_loader, forget_loader, val_loader, test_loader, original_forget_loader = load_datasets_with_forgetting(
+        partition_id,
+        num_partitions,
+        dataset_name=custom_config["DATASET"],
+        forgetting_config=forget_set_config
+    )
+    evaluate_unlearned_model(
+        unlearned_model=net,
+        forgetloader=forget_loader,
+        testloader=test_loader,
+        valloader=val_loader,
+        dataset_name=custom_config["DATASET"],
+        device=device
+    )
+# ...existing code...import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Subset
@@ -197,7 +231,7 @@ if __name__ == "__main__":
     partition_id = context.node_config["partition-id"]
     num_partitions = context.node_config["num-partitions"]
 
-    net = custom_config["LOADED_MODEL"]
+    net = custom_config["LOADED_MODEL"] #TODO  check that we pass it
     forget_set_config = custom_config.get("FORGET_CLASS", {})
     train_loader, forget_loader, val_loader, test_loader, original_forget_loader = load_datasets_with_forgetting(
         partition_id,

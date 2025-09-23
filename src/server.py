@@ -26,7 +26,7 @@ from flwr.server.client_proxy import ClientProxy
 from flwr.server.strategy import FedAvg
 from flwr.server.strategy.aggregate import aggregate, weighted_loss_avg
 
-from .utils.utils import save_model, load_model, set_seed, get_device, setup_experiment
+from .utils.utils import save_model, load_model, set_seed, get_device, setup_experiment, save_model_this_round
 from .utils.models import get_model
 from .utils.lr_scheduler import FederatedScheduler
 
@@ -398,6 +398,8 @@ class FedCustom(FedAvg):
         # Load parameters and save model
         model.load_state_dict(state_dict, strict=True)
         save_model(model, custom_config, server_round, is_best=is_best)
+        if self.current_phase in ["MIN", "MAX"]:
+            save_model_this_round(model, custom_config, server_round)
 
 
 def get_parameters(net) -> List[np.ndarray]:

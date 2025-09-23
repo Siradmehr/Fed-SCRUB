@@ -259,3 +259,22 @@ def save_model(
     print(f"Model saved to {filename}")
 
     return filename
+
+
+def save_model_this_round(
+        model: torch.nn.Module,
+        config: Dict,
+        round_t: Optional[int] = None,
+) -> str:
+    """Save model checkpoint to specified path."""
+    # Create save directory
+    save_dir = os.path.join(config["SAVING_DIR"], "models_chkpts")
+    os.makedirs(save_dir, exist_ok=True)
+    filename = os.path.join(save_dir, f"model_{str(round_t)}.pth")
+
+    # Prepare and save checkpoint
+    checkpoint = {"state_dict": model.state_dict()}
+    torch.save(checkpoint, filename)
+    print(f"Model saved to {filename}")
+
+    return filename

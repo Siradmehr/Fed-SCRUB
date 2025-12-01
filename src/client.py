@@ -343,7 +343,8 @@ class FlowerClient(NumPyClient):
             logger.error(f"Failed to initialize teacher model: {e}")
             raise
 
-    def _negate_layers(self, layer_indices=[0]):
+    def _negate_layers(self, layer_indices=[0,1]):
+        print("negating weights of layers:", layer_indices)
         if layer_indices is None:
             layer_indices = range(sum(1 for _ in self.net.parameters()))
 
@@ -369,7 +370,7 @@ class FlowerClient(NumPyClient):
             return {
             "loss": 0,
             "accuracy": 0,
-        }, 0
+        }, len(self.train_loader.dataset)
 
 
         if training_config.phase == TrainingPhase.NoT_MIN:
@@ -389,7 +390,7 @@ class FlowerClient(NumPyClient):
             return {
             "loss": 0,
             "accuracy": 0,
-        }, 0
+        }, len(self.train_loader.dataset)
 
     def _handle_pretrain_phase(self, config: TrainingConfig, optimizer) -> Tuple[dict, int]:
         print("Handle PRETRAIN phase")

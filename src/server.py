@@ -175,6 +175,8 @@ class FedCustom(FedAvg):
     def phase_schedule(self, phase: str, round_num: int) -> str:
         """Determine the next phase based on current phase and round number."""
         phase_transitions = {
+            "NoT": "NoT_MIN",
+            "NoT_MIN": "NoT_MIN",
             "LEARN": "LEARN",
             "MAX": "MIN",
             "MIN": "MAX",
@@ -464,6 +466,8 @@ def server_fn(context: Context) -> ServerAppComponents:
     if custom_config.get("WANDB_MODE", "ON") == "ON":
         print(wandb.config)
     print("server config wandb done")
+
+
     return ServerAppComponents(strategy=strategy, config=config)
 
 def create_server_app() -> ServerApp:

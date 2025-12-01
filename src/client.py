@@ -28,6 +28,8 @@ class TrainingPhase(Enum):
     MIN = "MIN"
     EXACT = "EXACT"
     PRETRAIN = "PRETRAIN"
+    Not = "NoT"
+    NoT_MIN = "NoT_MIN"
 
 
 @dataclass
@@ -341,6 +343,18 @@ class FlowerClient(NumPyClient):
             logger.error(f"Failed to initialize teacher model: {e}")
             raise
 
+    def _negate_layers(self, layer_indices=[0]):
+        if layer_indices is None:
+            layer_indices = range(sum(1 for _ in self.net.parameters()))
+
+        layer_indices = set(layer_indices)
+
+        with torch.no_grad():
+            for idx, p in enumerate(self.net.parameters()):
+                if idx in layer_indices:
+                    p.mul_(-1.0)     # in-place: p = -p
+
+        return self.net
     def _train_model(self, training_config: TrainingConfig) -> Tuple[dict, int]:
         """Train model based on configuration"""
         logger.info(f"Starting training phase: {training_config.phase}")
@@ -349,7 +363,17 @@ class FlowerClient(NumPyClient):
             lr=training_config.lr,
             betas=(0.9, 0.999)
         )
+        if training_config.phase == TrainingPhase.Not:
+            #disturb weights slightly
+            self.net = self._negate_layers()
+            return {
+            "loss": 0,
+            "accuracy": 0,
+        }, 0
 
+
+        if training_config.phase == TrainingPhase.NoT_MIN:
+            training_config.phase = TrainingPhase.MIN
 
         # Training logic based on phase
         print("Training logic based on phase", training_config.phase)
@@ -558,6 +582,7 @@ def client_fn(context: Context) -> Client:
         # net = get_model(custom_config["MODEL"]
 
         net = custom_config["LOADED_MODEL"]
+        #
         # Set up forget class configuration
         forget_set_config = {i: 0.0 for i in range(int(custom_config["NUM_CLASSES"]))}
         forget_set_config.update(custom_config.get("FORGET_CLASS", {}))

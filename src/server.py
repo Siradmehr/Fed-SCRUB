@@ -34,7 +34,60 @@ from .utils.lr_scheduler import FederatedScheduler
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 os.environ['TORCH_USE_CUDA_DSA'] = "1"
 
+from functools import partial, reduce
+from typing import Any, Callable, Union
 
+import numpy as np
+
+from flwr.common import FitRes, NDArray, NDArrays, parameters_to_ndarrays
+from flwr.server.client_proxy import ClientProxy
+
+def aggregate_with_policy(config, results: list[tuple[NDArrays, int]], previous_model) -> NDArrays:
+
+
+        """Compute weighted average."""
+        #TODO base on the measures
+        # If POLICY is MAX instead of the avg you should choose the max gradient among clients instead of avg (but in the difference meaning client i model weights - previous model weights)
+        # if Policy is MIN instead of the avg you should choose the min gradient among clients instead of avg (but in the difference meaning client i model weights - previous model weights)
+        # if Policy is Median instead of the avg you should choose the median gradient among clients instead of avg (but in the difference meaning client i model weights - previous model weights)
+        # the way we calculated the score for max, min, median is determined in GRADIENT_ACCUMULATION_POLICY if it is L2, this means L2 norm,
+
+        num_examples_total = sum(num_examples for (_, num_examples) in results)
+        """Aggregate gradients based on policy and measure."""
+        POLICY = config["GRADIENT_ACCUMULATION_POLICY"]
+        MEASURE = config["GRADIENT_ACCUMULATION_MEASURE"]
+
+        # Compute gradients (client_weights - previous_model)
+        gradients = []
+        for weights, num_examples in results:
+            grad = [w - p for w, p in zip(weights, previous_model)]
+            gradients.append((grad, num_examples))
+
+        # Compute measure for each gradient
+        if MEASURE == "L2":
+            scores = [np.sqrt(sum(np.sum(g ** 2) for g in grad)) for grad, _ in gradients]
+        else:
+            raise ValueError(f"Unknown measure: {MEASURE}")
+
+        # Select/aggregate based on policy
+        if POLICY == "MAX":
+            idx = np.argmax(scores)
+            selected_grad = gradients[idx][0]
+        elif POLICY == "MIN":
+            idx = np.argmin(scores)
+            selected_grad = gradients[idx][0]
+        elif POLICY == "MEDIAN":
+            idx = np.argsort(scores)[len(scores) // 2]
+            selected_grad = gradients[idx][0]
+        else:  # AVG/MEAN (default)
+            num_examples_total = sum(num_examples for _, num_examples in gradients)
+            weighted_grads = [[layer * num_examples for layer in grad]
+                              for grad, num_examples in gradients]
+            selected_grad = [reduce(np.add, layer_updates) / num_examples_total
+                             for layer_updates in zip(*weighted_grads)]
+
+        # Apply gradient to get new weights
+        return [p + g for p, g in zip(previous_model, selected_grad)]
 
 def weighted_loss_avg_custom(results: list[tuple[int, float]]) -> float:
         """Aggregate evaluation results obtained from multiple clients."""
@@ -211,7 +264,11 @@ class FedCustom(FedAvg):
         print(f"Aggregating round {server_round}, phase={self.current_phase}, valid results={len(weights_results)}")
 
         # Aggregate parameters
-        parameters_aggregated = ndarrays_to_parameters(aggregate(weights_results))
+        if self.current_phase == "MAX":
+            previous_model = self.load_latest_model()
+            parameters_aggregated = ndarrays_to_parameters(aggregate_with_policy(self.config, weights_results, previous_model))
+        else:
+            parameters_aggregated = ndarrays_to_parameters(aggregate(weights_results))
         self.round_model = parameters_aggregated
 
         # Aggregate metrics
@@ -381,6 +438,15 @@ class FedCustom(FedAvg):
         """Calculate number of clients to use for evaluation."""
         num_clients = int(num_available_clients * self.fraction_evaluate)
         return max(num_clients, self.min_evaluate_clients), self.min_available_clients
+
+    def load_latest_model(self) -> NDArrays:
+        """Load the latest server model."""
+        model = get_model(custom_config["MODEL"])
+        checkpoint_path = os.path.join(custom_config["SAVING_DIR"], "models_chkpts", "model_latest.pth")
+
+        checkpoint = torch.load(checkpoint_path, map_location='cpu')
+        model.load_state_dict(checkpoint["state_dict"], strict=True)
+        return [val.cpu().numpy() for val in model.state_dict().values()]
 
     def save_server_model(self, params: Parameters, server_round: int, is_best: bool = False) -> None:
         """Save the current server model."""

@@ -23,13 +23,8 @@ logger = logging.getLogger(__name__)
 
 class TrainingPhase(Enum):
     """Enumeration for training phases"""
-    LEARN = "LEARN"
-    MAX = "MAX"
-    MIN = "MIN"
-    EXACT = "EXACT"
-    PRETRAIN = "PRETRAIN"
-    Not = "NoT"
-    NoT_MIN = "NoT_MIN"
+    DEG = "DEG"
+    GUID = "GUID"
 
 
 @dataclass
@@ -468,32 +463,372 @@ class FlowerClient(NumPyClient):
         }, samples
 
     def fit(self, parameters: List[np.ndarray], config: dict) -> Tuple[List[np.ndarray], int, dict]:
-        """Fit the model with given parameters and configuration"""
+        """Fit the model with MoDe unlearning."""
         logger.info(f"[Client {self.partition_id}] fit, config: {config}")
 
         try:
+            num_main_layers = int(config.get("num_main_layers", len(parameters)))
+            has_deg_model = config.get("has_degradation_model", 0.0) == 1.0
+
+            if has_deg_model:
+                # Split into main and degradation models
+                main_params = parameters[:num_main_layers]
+                deg_params = parameters[num_main_layers:]
+                logger.info(
+                    f"[Client {self.partition_id}] Received both models: main={len(main_params)}, deg={len(deg_params)}")
+
+            else:
+                # Only main model
+                main_params = parameters
+                logger.info(f"[Client {self.partition_id}] Received main model only: {len(main_params)} layers")
+
+            # Set main model parameters
             self.set_parameters(parameters)
-            training_config = self._parse_config(config)
 
-            # Initialize teacher model if needed
-            if training_config.teacher_init:
-                self._initialize_teacher_model()
+            # Parse MoDe-specific config
+            is_forget_client = config.get("UNLEARN_CON") == "TRUE"
+            is_removed = config.get("REMOVE") == "TRUE"
 
-            # Train model
-            metrics_dict, num_samples = self._train_model(training_config)
 
-            # Prepare metrics
-            metrics = {
-                "train_loss": metrics_dict["loss"],
-                "train_accuracy": metrics_dict["accuracy"],
-            }
 
-            logger.info(f"Client {self.partition_id} training completed: {metrics}")
-            return self.get_parameters(), num_samples, metrics
+            # ===== MODE IMPLEMENTATION =====
+            if config.get("Phase") == "DEG":
+                # Degradation phase (rounds 1-5)
+                return self._mode_degradation_phase(config, is_forget_client)
+            else:
+                # Memory guidance only phase (rounds 6-8 or 6-20)
+                return self._mode_memory_guidance_phase(config, is_forget_client)
 
         except Exception as e:
             logger.error(f"Training failed for client {self.partition_id}: {e}")
             raise
+
+    def _mode_degradation_phase(self, config: dict, is_forget_client: bool) -> Tuple[List[np.ndarray], int, dict]:
+        """MoDe degradation phase: Train degradation model (non-forget) + memory guidance (all)."""
+        lr = config.get("lr", 0.001)
+        local_epochs = config.get("local_epochs", 1)
+
+        optimizer = torch.optim.Adam(self.net.parameters(), lr=lr, betas=(0.9, 0.999))
+
+        # ===== PART 1: Train degradation model (NON-forget clients only) =====
+        trained_degradation = False
+        deg_weights = None
+
+        if not is_forget_client and "degradation_model" in config:
+            # Load degradation model
+            deg_model = get_model(self.config_manager.config['MODEL'])
+            deg_model.to(self.device)
+
+            # Deserialize weights
+            deg_params = config["degradation_model"]
+            deg_ndarrays = [np.array(w) for w in deg_params]
+            params_dict = zip(deg_model.state_dict().keys(), deg_ndarrays)
+            state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
+            deg_model.load_state_dict(state_dict)
+
+            # Train degradation model on ALL retain data
+            deg_optimizer = torch.optim.Adam(deg_model.parameters(), lr=lr * 10, betas=(0.9, 0.999))
+            deg_model.train()
+
+            total_deg_samples = 0
+
+            # Train on train_loader
+            for epoch in range(local_epochs):
+                for images, labels in self.train_loader:
+                    images, labels = images.to(self.device), labels.to(self.device)
+                    deg_optimizer.zero_grad()
+                    outputs = deg_model(images)
+                    loss = self.loss_manager.criterion_cls(outputs, labels)
+                    loss.backward()
+                    deg_optimizer.step()
+                    total_deg_samples += images.size(0)
+
+            # Also train on forget_loader
+            if self.forget_loader and len(self.forget_loader) > 0:
+                for epoch in range(local_epochs):
+                    for images, labels in self.forget_loader:
+                        images, labels = images.to(self.device), labels.to(self.device)
+                        deg_optimizer.zero_grad()
+                        outputs = deg_model(images)
+                        loss = self.loss_manager.criterion_cls(outputs, labels)
+                        loss.backward()
+                        deg_optimizer.step()
+                        total_deg_samples += images.size(0)
+
+            # Extract degradation model weights
+            deg_weights = [val.cpu().numpy() for val in deg_model.state_dict().values()]
+            trained_degradation = True
+            logger.info(f"[Client {self.partition_id}] Trained degradation model on {total_deg_samples} samples")
+
+        # ===== PART 2: Memory guidance on main model (ALL clients) =====
+        if is_forget_client:
+            # Forget client: pseudo-labels on forget, normal on train
+            metrics, num_samples = self._train_with_pseudo_labels(config, optimizer, local_epochs)
+        else:
+            # Non-forget client: normal training on ALL data
+            metrics_train, samples_train = self.phase_trainer.train_learn_phase(
+                self.train_loader, local_epochs, optimizer
+            )
+
+            metrics_forget, samples_forget = TrainingMetrics(), 0
+            if self.forget_loader and len(self.forget_loader) > 0:
+                metrics_forget, samples_forget = self.phase_trainer.train_learn_phase(
+                    self.forget_loader, local_epochs, optimizer
+                )
+
+            total_samples = samples_train + samples_forget
+            if total_samples > 0:
+                combined_loss = (metrics_train.loss * samples_train +
+                                 metrics_forget.loss * samples_forget) / total_samples
+                combined_acc = (metrics_train.accuracy * samples_train +
+                                metrics_forget.accuracy * samples_forget) / total_samples
+                metrics = TrainingMetrics(loss=combined_loss, accuracy=combined_acc)
+                num_samples = total_samples
+            else:
+                metrics = metrics_train
+                num_samples = samples_train
+
+        # ===== CONCATENATE BOTH MODELS =====
+        main_weights = self.get_parameters()
+
+        if trained_degradation:
+            # Non-forget client: return [main_model + degradation_model]
+            all_weights = main_weights + deg_weights
+            return_metrics = {
+                "train_loss": metrics.loss,
+                "train_accuracy": metrics.accuracy,
+                "num_main_layers": float(len(main_weights)),  # Split point
+                "has_degradation": 1.0,
+            }
+            logger.info(
+                f"[Client {self.partition_id}] Returning BOTH models (main: {len(main_weights)} layers, deg: {len(deg_weights)} layers)")
+        else:
+            # Forget client: return only main model
+            all_weights = main_weights
+            return_metrics = {
+                "train_loss": metrics.loss,
+                "train_accuracy": metrics.accuracy,
+                "num_main_layers": float(len(main_weights)),
+                "has_degradation": 0.0,
+            }
+            logger.info(f"[Client {self.partition_id}] Returning main model only ({len(main_weights)} layers)")
+        print("IN CLIENT DONE")
+        return all_weights, num_samples, return_metrics
+
+    # def _mode_degradation_phase(self, config: dict, is_forget_client: bool) -> Tuple[List[np.ndarray], int, dict]:
+    #     """MoDe degradation phase: Train degradation model (non-forget) + memory guidance (all)."""
+    #     lr = config.get("lr", 0.001)
+    #     local_epochs = config.get("local_epochs", 1)
+    #
+    #     optimizer = torch.optim.Adam(self.net.parameters(), lr=lr, betas=(0.9, 0.999))
+    #
+    #     # ===== PART 1: Train degradation model (NON-forget clients only) =====
+    #     degradation_weights = None
+    #     if not is_forget_client and "degradation_model" in config:
+    #         # Load degradation model
+    #         deg_model = self.net
+    #
+    #         deg_model.to(self.device)
+    #
+    #         # Deserialize weights
+    #         deg_params = config["degradation_model"]
+    #         deg_ndarrays = [np.array(w) for w in deg_params]
+    #         params_dict = zip(deg_model.state_dict().keys(), deg_ndarrays)
+    #         state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
+    #         deg_model.load_state_dict(state_dict)
+    #
+    #         # Train degradation model on ALL retain data (train_loader + forget_loader)
+    #         # Non-forget clients keep ALL their data, so train on everything
+    #         deg_optimizer = torch.optim.Adam(deg_model.parameters(), lr=lr * 10, betas=(0.9, 0.999))
+    #         deg_model.train()
+    #
+    #         total_deg_samples = 0
+    #
+    #         # Train on train_loader
+    #         for epoch in range(local_epochs):
+    #             for images, labels in self.train_loader:
+    #                 images, labels = images.to(self.device), labels.to(self.device)
+    #                 deg_optimizer.zero_grad()
+    #                 outputs = deg_model(images)
+    #                 loss = self.loss_manager.criterion_cls(outputs, labels)
+    #                 loss.backward()
+    #                 deg_optimizer.step()
+    #                 total_deg_samples += images.size(0)
+    #
+    #         # Also train on forget_loader if this client has one
+    #         # (non-forget clients might have forget_loader, they just don't forget it)
+    #         if self.forget_loader and len(self.forget_loader) > 0:
+    #             for epoch in range(local_epochs):
+    #                 for images, labels in self.forget_loader:
+    #                     images, labels = images.to(self.device), labels.to(self.device)
+    #                     deg_optimizer.zero_grad()
+    #                     outputs = deg_model(images)
+    #                     loss = self.loss_manager.criterion_cls(outputs, labels)
+    #                     loss.backward()
+    #                     deg_optimizer.step()
+    #                     total_deg_samples += images.size(0)
+    #
+    #         # Extract degradation model weights to return
+    #         degradation_weights = [val.cpu().numpy() for val in deg_model.state_dict().values()]
+    #         logger.info(f"[Client {self.partition_id}] Trained degradation model on {total_deg_samples} samples")
+    #
+    #     # ===== PART 2: Memory guidance on main model (ALL clients) =====
+    #     if is_forget_client:
+    #         # Forget client: use pseudo-labels on forget_loader, normal training on train_loader
+    #         metrics, num_samples = self._train_with_pseudo_labels(config, optimizer, local_epochs)
+    #     else:
+    #         # Non-forget client: normal training on ALL data (train + forget loaders)
+    #         metrics_train, samples_train = self.phase_trainer.train_learn_phase(
+    #             self.train_loader, local_epochs, optimizer
+    #         )
+    #
+    #         # Also train on forget_loader if exists
+    #         metrics_forget, samples_forget = TrainingMetrics(), 0
+    #         if self.forget_loader and len(self.forget_loader) > 0:
+    #             metrics_forget, samples_forget = self.phase_trainer.train_learn_phase(
+    #                 self.forget_loader, local_epochs, optimizer
+    #             )
+    #
+    #         # Combine metrics
+    #         total_samples = samples_train + samples_forget
+    #         if total_samples > 0:
+    #             combined_loss = (metrics_train.loss * samples_train +
+    #                              metrics_forget.loss * samples_forget) / total_samples
+    #             combined_acc = (metrics_train.accuracy * samples_train +
+    #                             metrics_forget.accuracy * samples_forget) / total_samples
+    #             metrics = TrainingMetrics(loss=combined_loss, accuracy=combined_acc)
+    #             num_samples = total_samples
+    #         else:
+    #             metrics = metrics_train
+    #             num_samples = samples_train
+    #
+    #     # Prepare return metrics
+    #     return_metrics = {
+    #         "train_loss": metrics.loss,
+    #         "train_accuracy": metrics.accuracy,
+    #     }
+    #
+    #     # Add degradation weights to metrics for server to extract
+    #     if degradation_weights is not None:
+    #         return_metrics["degradation_weights"] = degradation_weights
+    #
+    #     logger.info(f"Client {self.partition_id} MoDe degradation completed: {return_metrics}")
+    #     return self.get_parameters(), num_samples, return_metrics
+
+    def _mode_memory_guidance_phase(self, config: dict, is_forget_client: bool) -> Tuple[List[np.ndarray], int, dict]:
+        """Memory guidance only phase (rounds 6-8): Fine-tune main model."""
+        lr = config.get("lr", 0.001)
+        local_epochs = config.get("local_epochs", 1)
+
+        optimizer = torch.optim.Adam(self.net.parameters(), lr=lr * 0.5, betas=(0.9, 0.999))
+
+        if is_forget_client:
+            # Use pseudo-labels on forget_loader, normal on train_loader
+            metrics, num_samples = self._train_with_pseudo_labels(config, optimizer, local_epochs)
+        else:
+            # Normal training on ALL data (train_loader + forget_loader)
+            metrics_train, samples_train = self.phase_trainer.train_learn_phase(
+                self.train_loader, local_epochs, optimizer
+            )
+
+            # Also train on forget_loader if exists
+            metrics_forget, samples_forget = TrainingMetrics(), 0
+            if self.forget_loader and len(self.forget_loader) > 0:
+                metrics_forget, samples_forget = self.phase_trainer.train_learn_phase(
+                    self.forget_loader, local_epochs, optimizer
+                )
+
+            # Combine metrics
+            total_samples = samples_train + samples_forget
+            if total_samples > 0:
+                combined_loss = (metrics_train.loss * samples_train +
+                                 metrics_forget.loss * samples_forget) / total_samples
+                combined_acc = (metrics_train.accuracy * samples_train +
+                                metrics_forget.accuracy * samples_forget) / total_samples
+                metrics = TrainingMetrics(loss=combined_loss, accuracy=combined_acc)
+                num_samples = total_samples
+            else:
+                metrics = metrics_train
+                num_samples = samples_train
+
+        return_metrics = {
+            "train_loss": metrics.loss,
+            "train_accuracy": metrics.accuracy,
+        }
+
+        logger.info(f"Client {self.partition_id} memory guidance completed: {return_metrics}")
+        return self.get_parameters(), num_samples, return_metrics
+
+    def _train_with_pseudo_labels(self, config: dict, optimizer, epochs: int) -> Tuple[TrainingMetrics, int]:
+        """Train forget client: pseudo-labels on forget_loader, normal labels on train_loader."""
+
+        # Load degradation model for pseudo-labels
+        deg_model = None
+        if "degradation_model" in config:
+            deg_model = get_model(self.config_manager.config['MODEL'])
+            deg_model.to(self.device)
+
+            deg_params = config["degradation_model"]
+            deg_ndarrays = [np.array(w) for w in deg_params]
+            params_dict = zip(deg_model.state_dict().keys(), deg_ndarrays)
+            state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
+            deg_model.load_state_dict(state_dict)
+            deg_model.eval()
+            logger.info(f"[Client {self.partition_id}] Loaded degradation model for pseudo-labels")
+
+        total_loss, total_correct, total_samples = 0.0, 0, 0
+        self.net.train()
+
+        # ===== STEP 1: Train on FORGET data with PSEUDO-LABELS =====
+        if self.forget_loader and len(self.forget_loader) > 0:
+            logger.info(f"[Client {self.partition_id}] Training on forget_loader with pseudo-labels")
+            for epoch in range(epochs):
+                for images, true_labels in self.forget_loader:  # true_labels not used
+                    images = images.to(self.device)
+
+                    # Get pseudo-labels from degradation model
+                    if deg_model is not None:
+                        with torch.no_grad():
+                            pseudo_logits = deg_model(images)
+                            pseudo_labels = pseudo_logits.argmax(dim=1)
+                    else:
+                        # Random labels if no degradation model (fallback)
+                        num_classes = int(self.config_manager.config.get("NUM_CLASSES", 10))
+                        pseudo_labels = torch.randint(0, num_classes, (images.size(0),), device=self.device)
+
+                    optimizer.zero_grad()
+                    outputs = self.net(images)
+                    loss = self.loss_manager.criterion_cls(outputs, pseudo_labels)
+                    loss.backward()
+                    optimizer.step()
+
+                    with torch.no_grad():
+                        total_loss += loss.item() * images.size(0)
+                        preds = outputs.argmax(dim=1)
+                        total_correct += (preds == pseudo_labels).sum().item()
+                        total_samples += images.size(0)
+
+        # ===== STEP 2: Train on RETAIN data with TRUE LABELS =====
+        if self.train_loader and len(self.train_loader) > 0:
+            logger.info(f"[Client {self.partition_id}] Training on train_loader with true labels")
+            for epoch in range(epochs):
+                for images, labels in self.train_loader:
+                    images, labels = images.to(self.device), labels.to(self.device)
+
+                    optimizer.zero_grad()
+                    outputs = self.net(images)
+                    loss = self.loss_manager.criterion_cls(outputs, labels)
+                    loss.backward()
+                    optimizer.step()
+
+                    with torch.no_grad():
+                        total_loss += loss.item() * images.size(0)
+                        preds = outputs.argmax(dim=1)
+                        total_correct += (preds == labels).sum().item()
+                        total_samples += images.size(0)
+
+        loss_avg, accuracy = _calculate_metrics(total_loss, total_correct, total_samples)
+        return TrainingMetrics(loss=loss_avg, accuracy=accuracy, samples=total_samples), total_samples
 
     def evaluate(self, parameters: List[np.ndarray], config: dict) -> Tuple[float, int, dict]:
         """Evaluate the model"""

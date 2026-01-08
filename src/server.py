@@ -209,21 +209,51 @@ class FedCustom(FedAvg):
             "TEACHER": custom_config["TEACHER"],
             "REMOVE": "FALSE"
         }
+        main_weights = parameters_to_ndarrays(parameters)
 
-        # Create client-specific configurations
+        if self.current_phase == "DEG":
+            deg_weights = parameters_to_ndarrays(self.degradation_model)
+            num_main_layers = len(main_weights)
+            print(f"[Server] Sending both models: main={num_main_layers} layers, deg={len(deg_weights)} layers")
+        else:
+            deg_weights = None
+            num_main_layers = len(main_weights)
+            print(f"[Server] Sending main model only: {num_main_layers} layers")
+
+            # Create client-specific configurations
         fit_configurations = []
         forget_clients = custom_config["CLIENT_ID_TO_FORGET"]
         remove_clients = custom_config["Client_ID_TO_EXIT"]
+
         for idx, client in enumerate(clients):
             client_config = standard_config.copy()
+
             if idx in forget_clients:
-                print(f"Client {idx} will contribute to unlearning")
+                print(f"Client {idx} is forget client")
                 client_config["UNLEARN_CON"] = "TRUE"
                 if idx in remove_clients:
                     client_config["REMOVE"] = "TRUE"
-            fit_configurations.append((client, FitIns(parameters, client_config)))
+
+            # Add split info for clients
+            client_config["num_main_layers"] = float(num_main_layers)
+
+            # Concatenate models for degradation phase
+            if self.current_phase == "DEG" and deg_weights is not None:
+                # Send both models concatenated
+                combined_weights = main_weights + deg_weights
+                combined_params = ndarrays_to_parameters(combined_weights)
+                client_config["has_degradation_model"] = 1.0
+            else:
+                # Send only main model
+                combined_params = parameters
+                client_config["has_degradation_model"] = 0.0
+
+            fit_configurations.append((client, FitIns(combined_params, client_config)))
 
         return fit_configurations
+
+        # Create client-specific configurations
+
 
     def phase_schedule(self, phase: str, round_num: int) -> str:
         """Determine the next phase based on current phase and round number."""
@@ -234,12 +264,13 @@ class FedCustom(FedAvg):
             "MAX": "MIN",
             "MIN": "MAX",
             "EXACT": "EXACT",
-            "PRETRAIN": "PRETRAIN"
+            "PRETRAIN": "PRETRAIN",
+            "DEG":"DEG",
+            "GUID": "GUID"
         }
-
         # Special case: stay in MIN phase if we've reached LAST_MAX_STEPS
-        if custom_config["LAST_MAX_STEPS"] <= round_num and phase == "MIN":
-            return "MIN"
+        if round_num > int(custom_config["DEGRADATION_ROUNDS"]):
+            return "GUID"
 
         return phase_transitions.get(phase)
 
@@ -254,21 +285,86 @@ class FedCustom(FedAvg):
 
         if failures:
             print(f"Failures: {failures}")
+        forget_clients = set(custom_config["CLIENT_ID_TO_FORGET"])
+        if self.current_phase == "DEG":
+            print(f"[MoDe] Round {server_round}: Degradation phase")
 
-        # Extract valid results
-        weights_results = [
-            (parameters_to_ndarrays(fit_res.parameters), fit_res.num_examples)
-            for _, fit_res in results if fit_res.num_examples > 0
-        ]
+            # Separate and extract weights
+            degradation_results = []
+            main_model_results = []
 
-        print(f"Aggregating round {server_round}, phase={self.current_phase}, valid results={len(weights_results)}")
+            for client_proxy, fit_res in results:
+                client_idx = int(client_proxy.cid)
+                all_weights = parameters_to_ndarrays(fit_res.parameters)
+                num_examples = fit_res.num_examples
 
-        # Aggregate parameters
-        if self.current_phase == "MAX" and self.config.get("GRADIENT_ACCUMULATION_POLICY", "AVG") in ["MAX", "MIN", "MEDIAN"]:
-            previous_model = self.load_latest_model(server_round=server_round)
-            parameters_aggregated = ndarrays_to_parameters(aggregate_with_policy(self.config, weights_results, previous_model))
+                has_degradation = fit_res.metrics.get("has_degradation", 0.0) == 1.0
+                num_main_layers = int(fit_res.metrics.get("num_main_layers", len(all_weights)))
+
+                if has_degradation:
+                    # Non-forget client: split concatenated weights
+                    main_weights = all_weights[:num_main_layers]
+                    deg_weights = all_weights[num_main_layers:]
+
+                    degradation_results.append((deg_weights, num_examples))
+                    main_model_results.append((main_weights, num_examples))
+
+                    print(
+                        f"  Client {client_idx} (non-forget): main={len(main_weights)} layers, deg={len(deg_weights)} layers")
+                else:
+                    # Forget client: only main model
+                    main_weights = all_weights
+                    main_model_results.append((main_weights, num_examples))
+
+                    print(f"  Client {client_idx} (forget): main={len(main_weights)} layers only")
+
+            # Aggregate degradation model (from non-forget clients)
+            if degradation_results:
+                aggregated_deg = aggregate(degradation_results)
+                self.degradation_model = ndarrays_to_parameters(aggregated_deg)
+                print(f"[MoDe] Updated degradation model from {len(degradation_results)} non-forget clients")
+            else:
+                print(f"[MoDe] WARNING: No degradation model updates!")
+
+            # Aggregate main model (from ALL clients)
+            if main_model_results:
+                aggregated_main = aggregate(main_model_results)
+                main_params = ndarrays_to_parameters(aggregated_main)
+                print(f"[MoDe] Aggregated main model from {len(main_model_results)} clients")
+            else:
+                main_params = self.round_model if self.round_model else self.initial_parameters
+
+            # Apply momentum degradation: W = λW + (1-λ)Wde
+            main_weights = parameters_to_ndarrays(main_params)
+            deg_weights = parameters_to_ndarrays(self.degradation_model)
+
+            degraded_weights = [
+                self.momentum * w_main + (1 - self.momentum) * w_deg
+                for w_main, w_deg in zip(main_weights, deg_weights)
+            ]
+            parameters_aggregated = ndarrays_to_parameters(degraded_weights)
+            print(f"[MoDe] Applied momentum degradation (λ={self.momentum})")
+
+            # ===== MEMORY GUIDANCE ONLY (Rounds 6-8 or 6-20) =====
         else:
-            parameters_aggregated = ndarrays_to_parameters(aggregate(weights_results))
+            print(f"[MoDe] Round {server_round}: Memory guidance only")
+
+            # Extract main models only (no degradation in this phase)
+            main_model_results = []
+
+            for client_proxy, fit_res in results:
+                all_weights = parameters_to_ndarrays(fit_res.parameters)
+                num_examples = fit_res.num_examples
+
+                # In guidance phase, all clients return only main model
+                main_model_results.append((all_weights, num_examples))
+
+            if main_model_results:
+                parameters_aggregated = ndarrays_to_parameters(aggregate(main_model_results))
+                print(f"[MoDe] Aggregated main model from {len(main_model_results)} clients")
+            else:
+                parameters_aggregated = self.round_model if self.round_model else self.initial_parameters
+
         self.round_model = parameters_aggregated
 
         # Aggregate metrics
@@ -276,7 +372,7 @@ class FedCustom(FedAvg):
 
         self.round_log[self.log_data.columns.get_loc("TRAINING_LOSS")] = loss
         self.round_log[self.log_data.columns.get_loc("TRAINING_ACC")] = acc
-        self.round_log[self.log_data.columns.get_loc("Phase")] = self.current_phase
+        self.round_log[self.log_data.columns.get_loc("Phase")] = f"MoDe_R{server_round}"
         self.round_log[self.log_data.columns.get_loc("Iter")] = server_round
 
         # Save model and logs
@@ -515,6 +611,13 @@ def server_fn(context: Context) -> ServerAppComponents:
     ndarrays = get_parameters(custom_config["LOADED_MODEL"])
     parameters = ndarrays_to_parameters(ndarrays)
 
+    degradation_model = get_model(custom_config["MODEL"])
+    # Keep random weights, don't load checkpoint
+    deg_ndarrays = get_parameters(degradation_model)
+    # Store in config for strategy to use
+    custom_config["DEGRADATION_MODEL_INIT"] = ndarrays_to_parameters(deg_ndarrays)
+    # Set degradation model
+
     # Create strategy
     strategy = FedCustom(
         config=custom_config,
@@ -528,6 +631,8 @@ def server_fn(context: Context) -> ServerAppComponents:
         lr=float(custom_config["LR"]),
         scheduler=FederatedScheduler(),
     )
+    strategy.degradation_model = custom_config["DEGRADATION_MODEL_INIT"]
+    strategy.momentum = float(custom_config.get("DEGRADATION_MOMENTUM", 0.95))
     print(strategy.lr_scheduler)
     
     config = ServerConfig(num_rounds=num_rounds)

@@ -264,8 +264,8 @@ class FedCustom(FedAvg):
         print(f"Aggregating round {server_round}, phase={self.current_phase}, valid results={len(weights_results)}")
 
         # Aggregate parameters
-        if self.current_phase == "MAX":
-            previous_model = self.load_latest_model()
+        if self.current_phase == "MAX" and self.config.get("GRADIENT_ACCUMULATION_POLICY", "AVG") in ["MAX", "MIN", "MEDIAN"]:
+            previous_model = self.load_latest_model(server_round=server_round)
             parameters_aggregated = ndarrays_to_parameters(aggregate_with_policy(self.config, weights_results, previous_model))
         else:
             parameters_aggregated = ndarrays_to_parameters(aggregate(weights_results))
@@ -439,10 +439,13 @@ class FedCustom(FedAvg):
         num_clients = int(num_available_clients * self.fraction_evaluate)
         return max(num_clients, self.min_evaluate_clients), self.min_available_clients
 
-    def load_latest_model(self) -> NDArrays:
+    def load_latest_model(self, server_round = -1) -> NDArrays:
         """Load the latest server model."""
         model = get_model(custom_config["MODEL"])
-        checkpoint_path = os.path.join(custom_config["SAVING_DIR"], "models_chkpts", "model_latest.pth")
+        if server_round == 1:
+            checkpoint_path = custom_config["RESUME"]
+        else:
+            checkpoint_path = os.path.join(custom_config["SAVING_DIR"], "models_chkpts", "model_latest.pth")
 
         checkpoint = torch.load(checkpoint_path, map_location='cpu')
         model.load_state_dict(checkpoint["state_dict"], strict=True)

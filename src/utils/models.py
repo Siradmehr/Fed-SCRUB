@@ -688,8 +688,10 @@ class modelC(nn.Module):
         pool_out.squeeze_(-1)
         return pool_out
 
+from transformers import ViTForImageClassification, ViTConfig
+
 import torch
-def get_model(model_name: str = "resnet18"):
+def get_model(model_name: str = "resnet18", num_classes = 101):
     if model_name == "resnet18":
         return torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=False)
     elif model_name == "nf_resnet18":
@@ -710,3 +712,12 @@ def get_model(model_name: str = "resnet18"):
         return get_classic_model("ResNet18_small_test")
     elif model_name == "LeNet5":
         return LeNet5()
+    elif model_name == "vit":
+        config = ViTConfig(
+            image_size=224,
+            num_labels=num_classes,
+            num_hidden_layers=12,
+            hidden_size=768,
+            num_attention_heads=12
+        )
+        return ViTForImageClassification(config)

@@ -27,6 +27,177 @@ from ..utils.utils import np_index_save
 
 from .transformers_utils import *
 
+from torchvision import datasets
+from torch.utils.data import Dataset
+import torchvision.transforms as transforms
+
+
+class Caltech101Wrapper(Dataset):
+    def __init__(self, root, train=True, download=False, transform=None, seed=42):
+        # Caltech101 expects root to be the parent of 'caltech101' folder
+        self.dataset = datasets.Caltech101(
+            root=root,
+            target_type='category',
+            download=download,
+            transform=transform
+        )
+
+        self.targets = [self.dataset.y[i] for i in range(len(self.dataset))]
+
+        import random
+        all_indices = list(range(len(self.dataset)))
+        random.seed(seed)
+        random.shuffle(all_indices)
+
+        split_idx = int(0.8 * len(all_indices))
+
+        self.indices = all_indices[:split_idx] if train else all_indices[split_idx:]
+        self.targets = [self.targets[i] for i in self.indices]
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, idx):
+        actual_idx = self.indices[idx]
+        img, label = self.dataset[actual_idx]
+        return img, label
+
+#
+# class Caltech101Wrapper(Dataset):
+#     def __init__(self, root, train=True, download=True, transform=None, seed=42):
+#         self.dataset = datasets.Caltech101(root=root, download=download, transform=transform)
+#
+#         # Create targets list
+#         self.targets = [self.dataset.y[i] for i in range(len(self.dataset))]
+#
+#         # Shuffle ALL indices with seed before splitting
+#         import random
+#         all_indices = list(range(len(self.dataset)))
+#         random.seed(seed)
+#         random.shuffle(all_indices)
+#
+#         # Now split
+#         split_idx = int(0.8 * len(all_indices))
+#
+#         if train:
+#             self.indices = all_indices[:split_idx]
+#         else:
+#             self.indices = all_indices[split_idx:]
+#
+#         # Update targets to match split
+#         self.targets = [self.targets[i] for i in self.indices]
+#
+#     def __len__(self):
+#         return len(self.indices)
+#
+#     def __getitem__(self, idx):
+#         actual_idx = self.indices[idx]
+#         img, label = self.dataset[actual_idx]
+#         return img, label
+#
+
+import random
+from collections import defaultdict
+from torch.utils.data import Dataset
+from torchvision import datasets, transforms
+
+class MNISTStyleDataset(Dataset):
+    """
+    Wraps any base dataset + index list so it behaves like MNIST:
+    - has .targets
+    - __getitem__ returns (x, y)
+    """
+    def __init__(self, base_dataset, indices, targets):
+        self.base_dataset = base_dataset
+        self.indices = list(indices)
+        # store targets for the *subset* in MNIST/CIFAR style
+        self.targets = [int(targets[i]) for i in self.indices]
+
+    def __len__(self):
+        return len(self.indices)
+
+    def __getitem__(self, i):
+        base_i = self.indices[i]
+        x, y = self.base_dataset[base_i]
+        return x, int(y)
+
+
+def _get_targets_generic(dataset):
+    if hasattr(dataset, "targets"):
+        t = dataset.targets
+        return t.tolist() if hasattr(t, "tolist") else list(t)
+    if hasattr(dataset, "labels"):
+        t = dataset.labels
+        return t.tolist() if hasattr(t, "tolist") else list(t)
+    return [dataset[i][1] for i in range(len(dataset))]
+
+
+def _stratified_split_indices(targets, test_ratio=0.2, seed=42):
+    rng = random.Random(seed)
+    cls_to_idx = defaultdict(list)
+    for i, y in enumerate(targets):
+        cls_to_idx[int(y)].append(i)
+
+    train_idx, test_idx = [], []
+    for c, idxs in cls_to_idx.items():
+        rng.shuffle(idxs)
+        n_test = max(1, int(len(idxs) * test_ratio))  # prevent empty class in test
+        test_idx.extend(idxs[:n_test])
+        train_idx.extend(idxs[n_test:])
+
+    rng.shuffle(train_idx)
+    rng.shuffle(test_idx)
+    return train_idx, test_idx
+
+
+def load_caltech101_mnist_style(
+    root="./data",
+    seed=42,
+    test_ratio=0.2,
+    image_size=224,
+    vit_normalize=True,
+    download=True,
+):
+    """
+    Returns:
+      train_ds, test_ds, num_classes
+    where train_ds/test_ds behave like MNIST/CIFAR datasets:
+      - have .targets
+      - __getitem__ -> (tensor_image, int_label)
+    """
+    if vit_normalize:
+        tfm = transforms.Compose([
+            transforms.Resize((image_size, image_size)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.485, 0.456, 0.406),
+                                 std=(0.229, 0.224, 0.225)),
+        ])
+    else:
+        tfm = transforms.Compose([
+            transforms.Resize((image_size, image_size)),
+            transforms.ToTensor(),
+        ])
+
+    base = datasets.Caltech101(
+        root=root,
+        download=download,
+        transform=tfm,
+        target_type="category",   # gives integer class indices
+    )
+
+    targets = _get_targets_generic(base)
+    train_idx, test_idx = _stratified_split_indices(targets, test_ratio=test_ratio, seed=seed)
+
+    train_ds = MNISTStyleDataset(base, train_idx, targets)
+    test_ds  = MNISTStyleDataset(base, test_idx, targets)
+
+    # robust class count (don’t assume 101)
+    num_classes = len(getattr(base, "categories", set(targets)))
+
+    return train_ds, test_ds, num_classes
+
+
+
 def _partition_dataset(dataset, num_partitions, partition_id, shuffle):
     label_to_indices = defaultdict(lambda : [])
     target_list = dataset.targets
@@ -92,6 +263,19 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
     elif dataset_name.lower() == "fashionmnist":
         dataset = datasets.FashionMNIST(root=root, train=True, download=True, transform=transforms.ToTensor())
         test_dataset = datasets.FashionMNIST(root=root, train=False, download=True, transform=transforms.ToTensor())
+    # elif dataset_name.lower() in ["caltech101", "caltech-101", "caltech_101"]:
+    #     dataset, test_dataset, _ = load_caltech101_mnist_style(root=root, seed=seed)
+    elif dataset_name.lower() == "caltech-101":
+        vit_transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.Grayscale(num_output_channels=3),  # converts grayscale -> 3ch, leaves RGB as 3ch too
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225]),
+        ])
+        dataset = Caltech101Wrapper(root=root, train=True, download=True, transform=vit_transform, seed=seed)
+        test_dataset = Caltech101Wrapper(root=root, train=False, download=True, transform=vit_transform, seed=seed)
     else:
         raise ValueError("Unsupported dataset")
 

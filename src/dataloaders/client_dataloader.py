@@ -62,40 +62,6 @@ class Caltech101Wrapper(Dataset):
         img, label = self.dataset[actual_idx]
         return img, label
 
-#
-# class Caltech101Wrapper(Dataset):
-#     def __init__(self, root, train=True, download=True, transform=None, seed=42):
-#         self.dataset = datasets.Caltech101(root=root, download=download, transform=transform)
-#
-#         # Create targets list
-#         self.targets = [self.dataset.y[i] for i in range(len(self.dataset))]
-#
-#         # Shuffle ALL indices with seed before splitting
-#         import random
-#         all_indices = list(range(len(self.dataset)))
-#         random.seed(seed)
-#         random.shuffle(all_indices)
-#
-#         # Now split
-#         split_idx = int(0.8 * len(all_indices))
-#
-#         if train:
-#             self.indices = all_indices[:split_idx]
-#         else:
-#             self.indices = all_indices[split_idx:]
-#
-#         # Update targets to match split
-#         self.targets = [self.targets[i] for i in self.indices]
-#
-#     def __len__(self):
-#         return len(self.indices)
-#
-#     def __getitem__(self, idx):
-#         actual_idx = self.indices[idx]
-#         img, label = self.dataset[actual_idx]
-#         return img, label
-#
-
 import random
 from collections import defaultdict
 from torch.utils.data import Dataset
@@ -196,6 +162,67 @@ def load_caltech101_mnist_style(
 
     return train_ds, test_ds, num_classes
 
+import numpy as np
+from collections import defaultdict
+from torch.utils.data import Subset
+
+def _partition_dataset_dirichlet(
+    dataset,
+    num_partitions: int,
+    partition_id: int,
+    beta: float = 0.1,
+    seed: int = 42,
+    min_size: int = 10,   # ensure each client has at least this many samples
+):
+    """
+    Dirichlet label-skew partitioning (common in FL papers).
+    For each class k, draw p^(k) ~ Dir(beta * 1_N) over clients, then split that class accordingly.
+    """
+    rng = np.random.default_rng(seed)
+
+    targets = dataset.targets
+    if not isinstance(targets, list):
+        targets = targets.tolist()
+
+    # group global indices by class
+    label_to_indices = defaultdict(list)
+    for idx, y in enumerate(targets):
+        label_to_indices[int(y)].append(idx)
+
+    labels = sorted(label_to_indices.keys())
+    N = num_partitions
+
+    # We will build a list of indices per client
+    client_indices = [[] for _ in range(N)]
+
+    # Repeat until all clients have at least min_size samples (common safeguard)
+    while True:
+        client_indices = [[] for _ in range(N)]
+
+        for k in labels:
+            idxs = np.array(label_to_indices[k])
+            rng.shuffle(idxs)
+
+            # proportions for this class across clients
+            p = rng.dirichlet(alpha=np.ones(N) * beta)
+
+            # convert proportions -> split sizes (multinomial gives integer counts summing to len(idxs))
+            counts = rng.multinomial(len(idxs), p)
+
+            start = 0
+            for cid in range(N):
+                c = counts[cid]
+                if c > 0:
+                    client_indices[cid].extend(idxs[start:start + c].tolist())
+                start += c
+
+        sizes = [len(ci) for ci in client_indices]
+        if min(sizes) >= min_size:
+            break
+        # otherwise resample (with same RNG stream) until everyone has enough
+
+    part_idx = client_indices[partition_id]
+    return Subset(dataset, part_idx), part_idx
 
 
 def _partition_dataset(dataset, num_partitions, partition_id, shuffle):

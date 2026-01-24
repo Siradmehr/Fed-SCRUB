@@ -124,12 +124,12 @@ class MINILENET(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.conv1 = nn.Conv2d(1, 4, kernel_size=3, padding=0)
-        self.conv2 = nn.Conv2d(4, 8, kernel_size=3, padding=0)
+        self.conv1 = nn.Conv2d(1, 2, kernel_size=3, padding=0)
+        self.conv2 = nn.Conv2d(2, 4, kernel_size=3, padding=0)
 
         self.pool = nn.AdaptiveAvgPool2d((3, 3))
 
-        self.fc1 = nn.Linear(8 * 3 * 3, 16)
+        self.fc1 = nn.Linear(4 * 3 * 3, 16)
         self.fc2 = nn.Linear(16, 10)
 
         self.dropout = nn.Dropout(p=0.4)

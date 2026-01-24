@@ -199,9 +199,6 @@ def main(
         best_path = best_model_path_from_saving_dir(saving_dir)   # POSIX string
         exists = Path(best_path).is_file()                        # robust with /
 
-        if print_only_existing_best and not exists:
-            continue
-
         hits.append((d, saving_dir, best_path, exists))
 
         print(f"\nENV DIR:   {d}")
@@ -209,16 +206,12 @@ def main(
         print(f"BEST PATH: {best_path}")
         print(f"EXISTS:    {exists}")
 
-        if create_dirs:
-            Path(saving_dir).mkdir(parents=True, exist_ok=True)
 
     # ---- write output file (one best_path per line) ----
     out_path = Path(out_file).resolve()
     with out_path.open("w", encoding="utf-8", newline="\n") as f:
-        for _, _, best_path, exists in hits:
-            if print_only_existing_best and not exists:
-                continue
-            f.write(f"{d}:\n")
+        for dd, sv, best_path, exists in hits:
+            f.write(f"{dd}:\n")
             f.write(best_path + "\n\n\n")
 
     print(f"\nDone. Found {len(hits)} pretrain env dir(s) matching requirements.")

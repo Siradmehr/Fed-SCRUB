@@ -113,6 +113,42 @@ class LeNet5(nn.Module):
         return output
 
 
+import torch.nn as nn
+
+class MINILENET(nn.Module):
+    """
+    Input:  1 x 32 x 32
+    Output: 10
+    Intentionally underpowered CNN (~85% accuracy)
+    """
+    def __init__(self):
+        super().__init__()
+
+        self.conv1 = nn.Conv2d(1, 4, kernel_size=3, padding=0)
+        self.conv2 = nn.Conv2d(4, 8, kernel_size=3, padding=0)
+
+        self.pool = nn.AdaptiveAvgPool2d((3, 3))
+
+        self.fc1 = nn.Linear(8 * 3 * 3, 16)
+        self.fc2 = nn.Linear(16, 10)
+
+        self.dropout = nn.Dropout(p=0.4)
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = F.max_pool2d(x, 2)
+
+        x = F.relu(self.conv2(x))
+        x = F.max_pool2d(x, 2)
+
+        x = self.pool(x)
+        x = x.view(x.size(0), -1)
+
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = self.fc2(x)
+
+        return x
 
 
 __all__ = ['nf_ResNet', 'nf_resnet18', 'nf_resnet34', 'nf_resnet50', 'nf_resnet101',
@@ -712,6 +748,8 @@ def get_model(model_name: str = "resnet18", num_classes = 101):
         return get_classic_model("ResNet18_small_test")
     elif model_name == "LeNet5":
         return LeNet5()
+    elif model_name == "MINILENET":
+        return MINILENET()
     elif model_name == "vit":
         config = ViTConfig(
             image_size=224,

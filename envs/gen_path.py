@@ -221,10 +221,10 @@ def main(
 
 # Example usage:
 main(
-    root="f-fumMnist",
+    root="fashmnist",
     create_dirs=False,
     print_only_existing_best=False,   # set True to only store existing model_best.pth
-    out_file="best_model_paths.txt",
+    out_file="best_model_paths_fashion_mnist.txt",
 )
 
 # If you want ONLY the ones that actually have model_best.pth:

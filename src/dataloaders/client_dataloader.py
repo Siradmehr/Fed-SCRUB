@@ -166,63 +166,113 @@ import numpy as np
 from collections import defaultdict
 from torch.utils.data import Subset
 
+
 def _partition_dataset_dirichlet(
-    dataset,
-    num_partitions: int,
-    partition_id: int,
-    beta: float = 0.1,
-    seed: int = 42,
-    min_size: int = 10,   # ensure each client has at least this many samples
+        dataset,
+        num_partitions: int,
+        partition_id: int,
+        beta: float = 0.1,
+        seed: int = 42,
 ):
     """
-    Dirichlet label-skew partitioning (common in FL papers).
-    For each class k, draw p^(k) ~ Dir(beta * 1_N) over clients, then split that class accordingly.
+    Dirichlet label-skew partitioning (standard FL approach).
+    For each class k, sample proportions ~ Dir(beta) over clients, then split accordingly.
     """
-    rng = np.random.default_rng(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
     targets = dataset.targets
     if not isinstance(targets, list):
         targets = targets.tolist()
 
-    # group global indices by class
+    # Group indices by class
     label_to_indices = defaultdict(list)
-    for idx, y in enumerate(targets):
-        label_to_indices[int(y)].append(idx)
+    for idx, label in enumerate(targets):
+        label_to_indices[int(label)].append(idx)
 
-    labels = sorted(label_to_indices.keys())
-    N = num_partitions
+    # Initialize client indices
+    client_indices = [[] for _ in range(num_partitions)]
 
-    # We will build a list of indices per client
-    client_indices = [[] for _ in range(N)]
+    # For each class, split according to Dirichlet
+    for label in sorted(label_to_indices.keys()):
+        indices = label_to_indices[label]
+        np.random.shuffle(indices)
 
-    # Repeat until all clients have at least min_size samples (common safeguard)
-    while True:
-        client_indices = [[] for _ in range(N)]
+        # Sample proportions for this class across all clients
+        proportions = np.random.dirichlet(np.repeat(beta, num_partitions))
 
-        for k in labels:
-            idxs = np.array(label_to_indices[k])
-            rng.shuffle(idxs)
+        # Convert proportions to counts for first N-1 clients
+        counts = (proportions * len(indices)).astype(int)
 
-            # proportions for this class across clients
-            p = rng.dirichlet(alpha=np.ones(N) * beta)
+        # Give ALL remaining samples to the last client (handle rounding)
+        counts[-1] = len(indices) - counts[:-1].sum()
 
-            # convert proportions -> split sizes (multinomial gives integer counts summing to len(idxs))
-            counts = rng.multinomial(len(idxs), p)
+        # Split and assign to clients
+        start = 0
+        for client_id in range(num_partitions):
+            count = counts[client_id]
+            client_indices[client_id].extend(indices[start:start + count])
+            start += count
 
-            start = 0
-            for cid in range(N):
-                c = counts[cid]
-                if c > 0:
-                    client_indices[cid].extend(idxs[start:start + c].tolist())
-                start += c
+    partition_indices = client_indices[partition_id]
 
-        sizes = [len(ci) for ci in client_indices]
-        if min(sizes) >= min_size:
-            break
-        # otherwise resample (with same RNG stream) until everyone has enough
+    print(f"Dirichlet partition {partition_id} (beta={beta}) loaded with {len(partition_indices)} samples")
 
-    part_idx = client_indices[partition_id]
-    return Subset(dataset, part_idx), part_idx
+    return Subset(dataset, partition_indices), partition_indices
+
+
+# def _partition_dataset_dirichlet(
+#         dataset,
+#         num_partitions: int,
+#         partition_id: int,
+#         beta: float = 0.1,
+#         seed: int = 42,
+# ):
+#     """
+#     Dirichlet label-skew partitioning (standard FL approach).
+#     For each class k, sample proportions ~ Dir(beta) over clients, then split accordingly.
+#     """
+#     np.random.seed(seed)
+#     random.seed(seed)
+#
+#     targets = dataset.targets
+#     if not isinstance(targets, list):
+#         targets = targets.tolist()
+#
+#     # Group indices by class
+#     label_to_indices = defaultdict(list)
+#     for idx, label in enumerate(targets):
+#         label_to_indices[int(label)].append(idx)
+#
+#     # Initialize client indices
+#     client_indices = [[] for _ in range(num_partitions)]
+#
+#     # For each class, split according to Dirichlet
+#     for label in sorted(label_to_indices.keys()):
+#         indices = label_to_indices[label]
+#         np.random.shuffle(indices)
+#
+#         # Sample proportions for this class across all clients
+#         proportions = np.random.dirichlet(np.repeat(beta, num_partitions))
+#
+#         # Convert proportions to counts
+#         counts = (proportions * len(indices)).astype(int)
+#         # Fix rounding: give remaining samples to last client
+#         counts[-1] = len(indices) - counts[:-1].sum()
+#
+#         # Split and assign to clients
+#         start = 0
+#         for client_id in range(num_partitions):
+#             count = counts[client_id]
+#             if count > 0:
+#                 client_indices[client_id].extend(indices[start:start + count])
+#             start += count
+#
+#     partition_indices = client_indices[partition_id]
+#
+#     print(f"Dirichlet partition {partition_id} (beta={beta}) loaded with {len(partition_indices)} samples")
+#
+#     return Subset(dataset, partition_indices), partition_indices
 
 
 def _partition_dataset(dataset, num_partitions, partition_id, shuffle):
@@ -263,20 +313,12 @@ def _partition_dataset(dataset, num_partitions, partition_id, shuffle):
 
 
 def configure_balanced_partition(root: str, dataset_name: str, partition_id: int, num_partitions: int, seed: int,
-                                 shuffle: bool) -> Subset:
+                                 shuffle: bool, beta: float = None) -> Subset:
     """
-    Load a dataset and partition it so that each partition gets the same number of samples per label.
+    Load a dataset and partition it.
 
-    Args:
-        root (str): Path to dataset storage.
-        dataset_name (str): Name of the dataset (currently only "CIFAR10" is supported).
-        partition_id (int): The partition index (0 to num_partitions - 1).
-        num_partitions (int): Total number of partitions.
-        seed (int): Random seed for reproducibility.
-        shuffle (bool): Whether to shuffle indices within each label partition.
-
-    Returns:
-        Subset: A PyTorch Subset containing the balanced partition of data.
+    If beta is provided and <= 1000, uses Dirichlet partitioning with that beta value.
+    Otherwise, uses balanced IID partitioning.
     """
     # Load dataset
     if dataset_name.lower() == "cifar10":
@@ -284,19 +326,15 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
         test_dataset = datasets.CIFAR10(root=root, train=False, download=True, transform=transforms.ToTensor())
     elif dataset_name.lower() == "mnist":
         dataset = datasets.MNIST(root=root, train=True, download=True, transform=transforms.ToTensor())
-        #dataset.targets = dataset.targets.tolist()
         test_dataset = datasets.MNIST(root=root, train=False, download=True, transform=transforms.ToTensor())
-        #test_dataset = test_dataset.targets.tolist()
     elif dataset_name.lower() == "fashionmnist":
         dataset = datasets.FashionMNIST(root=root, train=True, download=True, transform=transforms.ToTensor())
         test_dataset = datasets.FashionMNIST(root=root, train=False, download=True, transform=transforms.ToTensor())
-    # elif dataset_name.lower() in ["caltech101", "caltech-101", "caltech_101"]:
-    #     dataset, test_dataset, _ = load_caltech101_mnist_style(root=root, seed=seed)
     elif dataset_name.lower() == "caltech-101":
         vit_transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),
-            transforms.Grayscale(num_output_channels=3),  # converts grayscale -> 3ch, leaves RGB as 3ch too
+            transforms.Grayscale(num_output_channels=3),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225]),
@@ -306,17 +344,27 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
     else:
         raise ValueError("Unsupported dataset")
 
-    # Validate partition_id
     if not (0 <= partition_id < num_partitions):
         raise ValueError(f"partition_id must be between 0 and {num_partitions - 1}")
 
-    trainin_set, full_training_index = _partition_dataset(dataset, num_partitions, partition_id, shuffle)
-    test_set, test_index = _partition_dataset(test_dataset, num_partitions, partition_id, shuffle)
+    # Choose partitioning strategy
+    if beta is not None and beta <= 1000:
+        # Non-IID Dirichlet partitioning
+        trainin_set, full_training_index = _partition_dataset_dirichlet(
+            dataset, num_partitions, partition_id, beta=beta, seed=seed
+        )
+        # Keep test set balanced (standard practice in FL)
+        test_set, test_index = _partition_dataset(test_dataset, num_partitions, partition_id, shuffle)
+    else:
+        # IID balanced partitioning
+        trainin_set, full_training_index = _partition_dataset(dataset, num_partitions, partition_id, shuffle)
+        test_set, test_index = _partition_dataset(test_dataset, num_partitions, partition_id, shuffle)
+
     return trainin_set, full_training_index, test_set, test_index
 
 
-
-def load_datasets_with_forgetting(
+def \
+        load_datasets_with_forgetting(
         partition_id: int,
         num_partitions: int,
         seed: int = 42,
@@ -332,12 +380,18 @@ def load_datasets_with_forgetting(
     custom_config = setup_experiment(path=os.environ["EXP_ENV_DIR"], load_model_flag=False)
     set_seed(int(custom_config["SEED"]))
 
-    partition, full_training_index, test_set, test_index = configure_balanced_partition(root="./data",
-                                             dataset_name=dataset_name,
-                                             partition_id=partition_id,
-                                             num_partitions=num_partitions,
-                                             seed=seed,
-                                             shuffle=shuffle)
+    beta = custom_config.get("NON_IID_DP", 10000)  # default > 1000 means IID
+    print("DIRICHLET BETA: ", beta)
+
+    partition, full_training_index, test_set, test_index = configure_balanced_partition(
+        root="./data",
+        dataset_name=dataset_name,
+        partition_id=partition_id,
+        num_partitions=num_partitions,
+        seed=seed,
+        shuffle=shuffle,
+        beta=beta  # Pass beta parameter
+    )
 
     # Group data by class labels
     label_to_indices = defaultdict(list)
@@ -370,16 +424,7 @@ def load_datasets_with_forgetting(
             class_counts[item[1]] += 1
         return class_counts
 
-    # train_distribution = compute_class_distribution(train_data)
-    # val_distribution = compute_class_distribution(val_data)
-    # test_distribution = compute_class_distribution(test_data)
-    #
-    # print("Class distributions:")
-    # print(f"Train: {train_distribution}")
-    # print(f"Val: {val_distribution}")
-    # print(f"Test: {test_distribution}")
 
-    # Now split the train set into retrain and forget sets based on forgetting_config
     class_indices = defaultdict(list)
     for i, x in enumerate(train_data):
         class_indices[x[1]].append(i)
@@ -398,13 +443,6 @@ def load_datasets_with_forgetting(
 
     forgetset = Subset(train_data, forget_indices)
     retrainset = Subset(train_data, retrain_indices)
-
-    # # Compute forget and retrain distributions
-    # forget_distribution = compute_class_distribution(forgetset)
-    # retrain_distribution = compute_class_distribution(retrainset)
-    #
-    # print(f"Forget set: {forget_distribution}")
-    # print(f"Retrain set: {retrain_distribution}")
 
     import copy
     forget_clients = custom_config["CLIENT_ID_TO_FORGET"]

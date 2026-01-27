@@ -14,6 +14,7 @@ INT_KEYS = [
     "RETRAIN_BATCH", "FORGET_BATCH", "VAL_BATCH", "TEST_BATCH",
     "NUM_CLASSES", "LOCAL_EPOCHS", "MIN_EPOCHS", "MAX_EPOCHS", "LAST_MAX_STEPS"
 ]
+FLOAT_KEYS = ["NON_IID_DP"]
 
 
 def set_seed(seed: int) -> None:
@@ -65,6 +66,9 @@ def load_config(path: str = "./envs") -> Dict:
     for key in INT_KEYS:
         if key in config:
             config[key] = int(config[key])
+    for key in FLOAT_KEYS:
+        if key in config:
+            config[key] = float(config[key])
 
     # Process comma-separated integer lists
     for key in ["CLIENT_ID_TO_FORGET", "LR_ROUND", "Client_ID_TO_EXIT"]:

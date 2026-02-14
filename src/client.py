@@ -523,7 +523,8 @@ class FlowerClient(NumPyClient):
                 )
 
                 results_fgt = eval_ic_fgt(
-                    self.net, self.original_forget_loader, device=self.device, num_classes=10,
+                    self.net, self.original_forget_loader, device=self.device,
+                    num_classes=self.loss_manager.num_classes,
                     confuse_map=self.config_manager.config["MAP_CONFUSE"],
                     loss_fn=self.loss_manager.criterion_cls
                 )

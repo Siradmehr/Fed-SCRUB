@@ -746,6 +746,8 @@ def get_model(model_name: str = "resnet18", num_classes = 101):
         return get_classic_model("ResNet18_small")
     elif model_name == "ResNet18_small_test":
         return get_classic_model("ResNet18_small_test")
+    elif model_name == "ResNet34":
+        return get_classic_model("ResNet34")
     elif model_name == "LeNet5":
         return LeNet5()
     elif model_name == "MINILENET":

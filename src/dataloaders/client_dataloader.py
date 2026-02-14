@@ -81,7 +81,10 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
         Subset: A PyTorch Subset containing the balanced partition of data.
     """
     # Load dataset
-    if dataset_name.lower() == "cifar10":
+    if dataset_name.lower() == "cifar100":
+        dataset = datasets.CIFAR100(root=root, train=True, download=True, transform=transforms.ToTensor())
+        test_dataset = datasets.CIFAR100(root=root, train=False, download=True, transform=transforms.ToTensor())
+    elif dataset_name.lower() == "cifar10":
         dataset = datasets.CIFAR10(root=root, train=True, download=True, transform=transforms.ToTensor())
         test_dataset = datasets.CIFAR10(root=root, train=False, download=True, transform=transforms.ToTensor())
     elif dataset_name.lower() == "mnist":
@@ -93,6 +96,7 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
         dataset = datasets.FashionMNIST(root=root, train=True, download=True, transform=transforms.ToTensor())
         test_dataset = datasets.FashionMNIST(root=root, train=False, download=True, transform=transforms.ToTensor())
     else:
+        print(dataset_name)
         raise ValueError("Unsupported dataset")
 
     # Validate partition_id

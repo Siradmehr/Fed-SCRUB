@@ -37,6 +37,7 @@ def get_device(config: Dict) -> torch.device:
 
 def load_config(path: str = "./envs") -> Dict:
     """Load and process configuration from environment files."""
+    print(path)
     if not os.path.exists(path):
         raise FileNotFoundError(f"Configuration directory not found: {path}")
 

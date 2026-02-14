@@ -779,9 +779,9 @@ class FlowerClient(NumPyClient):
         total_loss, total_correct, total_samples = 0.0, 0, 0
         self.net.train()
 
-        # ===== STEP 1: Train on FORGET data with PSEUDO-LABELS =====
+        # ===== STEP 1: Train on FORGET data =====
         if self.forget_loader and len(self.forget_loader) > 0:
-            logger.info(f"[Client {self.partition_id}] Training on forget_loader with pseudo-labels")
+            logger.info(f"[Client {self.partition_id}] Training on forget_loader ")
             for epoch in range(epochs):
                 for images, true_labels in self.forget_loader:  # true_labels not used
                     images = images.to(self.device)

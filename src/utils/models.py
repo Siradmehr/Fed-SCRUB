@@ -740,6 +740,8 @@ def get_model(model_name: str = "resnet18", num_classes = 101):
         return torch.hub.load('pytorch/vision:v0.10.0', 'squeezenet1_0', pretrained=False)
     elif model_name == "AllCNN":
         return get_classic_model("AllCNN")
+    elif model_name == "ResNet34":
+        return get_classic_model("ResNet34")
     elif model_name == "SmallAllCNN":
         return get_classic_model("SmallAllCNN")
     elif model_name == "ResNet18_small":

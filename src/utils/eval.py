@@ -17,7 +17,7 @@ import random
 
 import torch
 from typing import Dict, Tuple, Iterable, Optional
-
+from transformers.modeling_outputs import ImageClassifierOutput
 @torch.no_grad()
 def eval_ic_fgt(
     net,
@@ -61,6 +61,8 @@ def eval_ic_fgt(
         labels = labels.to(device)
 
         logits = net(images)
+        if isinstance(logits, ImageClassifierOutput):
+            logits = logits.logits
         if loss_fn is not None:
             total_loss += loss_fn(logits, labels).item() * labels.size(0)
 
@@ -161,7 +163,10 @@ def _eval_mode(loss, net, loader, device):
             images = images.to(device)
             labels = labels.to(device)
 
+
             outputs = net(images)
+            if isinstance(outputs, ImageClassifierOutput):
+                outputs = outputs.logits
             loss = criterion(outputs, labels)
 
             total_loss += loss.item() * images.size(0)
@@ -191,6 +196,8 @@ def get_loss_values(model, dataloader, device):
                 images, targets = images.to(device), targets.to(device)
                 
             outputs = model(images)
+            if isinstance(outputs, ImageClassifierOutput):
+                outputs = outputs.logits
             batch_losses = criterion(outputs, targets)
             losses.extend(batch_losses.cpu().numpy())
             

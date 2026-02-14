@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple, Union
 from enum import Enum
 from dataclasses import dataclass
 import logging
+from transformers.modeling_outputs import ImageClassifierOutput
 from flwr.client import Client, NumPyClient
 from flwr.common import NDArrays, Scalar, Context
 from .utils.losses import get_loss
@@ -131,9 +132,12 @@ class PhaseTrainer:
         for epoch in range(epochs):
             for images, labels in dataloader:
                 images, labels = images.to(self.device), labels.to(self.device)
+                # print(f"Input shape: {images.shape}")  # Should be [batch, 3, 224, 224]
 
                 optimizer.zero_grad()
                 outputs = self.model(images)
+                if isinstance(outputs, ImageClassifierOutput):
+                    outputs = outputs.logits
                 loss = self.loss_manager.criterion_cls(outputs, labels)
                 loss.backward()
 
@@ -174,9 +178,13 @@ class PhaseTrainer:
 
                 with torch.no_grad():
                     teacher_outputs = self.teacher_model(images)
+                    if isinstance(teacher_outputs, ImageClassifierOutput):
+                        teacher_outputs = teacher_outputs.logits
                     teacher_probs = F.softmax(teacher_outputs, dim=1)
 
                 student_outputs = self.model(images)
+                if isinstance(student_outputs, ImageClassifierOutput):
+                    student_outputs = student_outputs.logits
                 # Negative loss to maximize divergence
                 loss = -self.loss_manager.criterion_kd(student_outputs, teacher_probs)
                 loss.backward()
@@ -244,9 +252,13 @@ class PhaseTrainer:
 
                 with torch.no_grad():
                     teacher_outputs = self.teacher_model(images)
+                    if isinstance(teacher_outputs, ImageClassifierOutput):
+                        teacher_outputs = teacher_outputs.logits
                     teacher_probs = F.softmax(teacher_outputs, dim=1)
 
                 student_outputs = self.model(images)
+                if isinstance(student_outputs, ImageClassifierOutput):
+                    student_outputs = student_outputs.logits
 
                 loss_cls = self.loss_manager.criterion_cls(student_outputs, labels)
                 loss_div = self.loss_manager.criterion_div(student_outputs, teacher_probs)

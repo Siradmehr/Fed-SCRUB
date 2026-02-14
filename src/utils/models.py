@@ -755,9 +755,10 @@ def get_model(model_name: str = "resnet18", num_classes = 101):
     elif model_name == "vit":
         config = ViTConfig(
             image_size=224,
-            num_labels=num_classes,
+            num_labels=101,
             num_hidden_layers=12,
             hidden_size=768,
-            num_attention_heads=12
+            num_attention_heads=12,
+            patch_size = 16
         )
         return ViTForImageClassification(config)

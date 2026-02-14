@@ -333,7 +333,7 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
     elif dataset_name.lower() == "fashionmnist":
         dataset = datasets.FashionMNIST(root=root, train=True, download=True, transform=transforms.ToTensor())
         test_dataset = datasets.FashionMNIST(root=root, train=False, download=True, transform=transforms.ToTensor())
-    elif dataset_name.lower() == "caltech-101":
+    elif dataset_name.lower() == "caltech101":
         vit_transform = transforms.Compose([
             transforms.Resize(256),
             transforms.CenterCrop(224),

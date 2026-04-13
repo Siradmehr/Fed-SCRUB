@@ -1,3 +1,5 @@
+from transformers import ViTForImageClassification, ViTConfig
+from torch import nn
 import torch
 from torch import Tensor
 import torch.nn as nn
@@ -88,6 +90,7 @@ class LeNet5(nn.Module):
     Input - 1x32x32
     Output - 10
     """
+
     def __init__(self):
         super(LeNet5, self).__init__()
 
@@ -113,14 +116,13 @@ class LeNet5(nn.Module):
         return output
 
 
-import torch.nn as nn
-
 class MINILENET(nn.Module):
     """
     Input:  1 x 32 x 32
     Output: 10
     Intentionally underpowered CNN (~85% accuracy)
     """
+
     def __init__(self):
         super().__init__()
 
@@ -260,7 +262,6 @@ class BasicBlock(nn.Module):
         out += identity
 
         return out
-
 
 
 class Bottleneck(nn.Module):
@@ -452,7 +453,8 @@ def _nf_resnet(
         base_conv: nn.Conv2d,
         **kwargs: Any
 ) -> NFResNet:
-    model = NFResNet(block, layers, alpha=alpha, beta=beta, activation=activation, base_conv=base_conv, **kwargs)
+    model = NFResNet(block, layers, alpha=alpha, beta=beta,
+                     activation=activation, base_conv=base_conv, **kwargs)
     return model
 
 
@@ -590,8 +592,9 @@ def nf_wide_resnet101_2(alpha: float = 0.2, beta: float = 1.0, activation: str =
     return _nf_resnet('wide_nf_resnet101_2', Bottleneck, [3, 4, 23, 3],
                       alpha=alpha, beta=beta, activation=activation, base_conv=base_conv, **kwargs)
 
+
 class FLNet(nn.Module):
-    def __init__(self, num_class : int = 10):
+    def __init__(self, num_class: int = 10):
         super(FLNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 32, 5, padding=2)
         self.conv2 = nn.Conv2d(32, 64, 5, padding=2)
@@ -605,10 +608,6 @@ class FLNet(nn.Module):
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
-
-
-from torch import nn
-import torch.nn.functional as F
 
 
 class MLP(nn.Module):
@@ -690,6 +689,7 @@ class CNNCifar(nn.Module):
         x = self.fc3(x)
         return F.log_softmax(x, dim=1)
 
+
 class modelC(nn.Module):
     def __init__(self, input_size, n_classes=10, **kwargs):
         super(AllConvNet, self).__init__()
@@ -703,7 +703,6 @@ class modelC(nn.Module):
         self.conv8 = nn.Conv2d(192, 192, 1)
 
         self.class_conv = nn.Conv2d(192, n_classes, 1)
-
 
     def forward(self, x):
         x_drop = F.dropout(x, .2)
@@ -724,10 +723,8 @@ class modelC(nn.Module):
         pool_out.squeeze_(-1)
         return pool_out
 
-from transformers import ViTForImageClassification, ViTConfig
 
-import torch
-def get_model(model_name: str = "resnet18", num_classes = 101):
+def get_model(model_name: str = "resnet18", num_classes=101):
     if model_name == "resnet18":
         return torch.hub.load('pytorch/vision:v0.10.0', 'resnet18', pretrained=False)
     elif model_name == "nf_resnet18":
@@ -759,6 +756,6 @@ def get_model(model_name: str = "resnet18", num_classes = 101):
             num_hidden_layers=12,
             hidden_size=768,
             num_attention_heads=12,
-            patch_size = 16
+            patch_size=16
         )
         return ViTForImageClassification(config)

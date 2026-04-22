@@ -28,7 +28,9 @@ def set_seed(seed: int) -> None:
 
 def get_device(config: Dict) -> torch.device:
     """Get the appropriate device based on configuration and availability."""
-    device_name = config.get("DEVICE", "cuda:0") if torch.cuda.is_available() else "cpu"
+    device_name = config.get(
+        "DEVICE", "cuda:0") if torch.cuda.is_available() else "cpu"
+    print("available device is ", device_name)
     device = torch.device(device_name)
     print(f"Using device: {device}")
     if device.type == 'cuda':
@@ -45,9 +47,9 @@ def load_config(path: str = "./envs") -> Dict:
     env_path = os.path.join(path, ".env")
     training_path = os.path.join(path, ".env.training")
 
-
     if not os.path.exists(env_path) or not os.path.exists(training_path):
-        raise FileNotFoundError(f"Required configuration files missing in {path}")
+        raise FileNotFoundError(
+            f"Required configuration files missing in {path}")
 
     config = {
         **dotenv_values(env_path),
@@ -77,7 +79,6 @@ def load_config(path: str = "./envs") -> Dict:
         else:
             config[key] = []
 
-
     return config
 
 
@@ -97,7 +98,8 @@ def np_index_save(full_training_index, training_set, retrain_index, forget_index
     os.makedirs(save_path, exist_ok=True)
 
     # Create the full path for the npz file
-    file_path = os.path.join(save_path, f"{partition_id}_dataset_partitions.npz")
+    file_path = os.path.join(
+        save_path, f"{partition_id}_dataset_partitions.npz")
 
     # Save all indexes in a single npz file
     np.savez(
@@ -112,52 +114,53 @@ def np_index_save(full_training_index, training_set, retrain_index, forget_index
 
     print(f"Dataset partition indexes saved to {file_path}")
 
+
 def np_index_load(config, partition_id=None) -> tuple:
-        """Load dataset partition indexes from an npz file.
+    """Load dataset partition indexes from an npz file.
 
-        Args:
-            config: Configuration dictionary containing saving directory
-            partition_id: Optional partition ID. If None, loads without partition ID in filename
+    Args:
+        config: Configuration dictionary containing saving directory
+        partition_id: Optional partition ID. If None, loads without partition ID in filename
 
-        Returns:
-            Tuple containing (dictionary of indexes, full_training_index, forget_index, 
-                             val_index, test_index, retrain_index)
-        """
-        # Construct the path to the partition_indexes directory
-        save_path = os.path.join(config["SAVING_DIR"], "partition_indexes")
+    Returns:
+        Tuple containing (dictionary of indexes, full_training_index, forget_index, 
+                         val_index, test_index, retrain_index)
+    """
+    # Construct the path to the partition_indexes directory
+    save_path = os.path.join(config["SAVING_DIR"], "partition_indexes")
 
-        # Check if directory exists
-        if not os.path.exists(save_path):
-            raise FileNotFoundError(f"Directory not found: {save_path}")
+    # Check if directory exists
+    if not os.path.exists(save_path):
+        raise FileNotFoundError(f"Directory not found: {save_path}")
 
-        # Construct the filename based on whether partition_id is provided
-        if partition_id is not None:
-            file_path = os.path.join(save_path, f"{partition_id}_dataset_partitions.npz")
-        else:
-            file_path = os.path.join(save_path, "dataset_partitions.npz")
+    # Construct the filename based on whether partition_id is provided
+    if partition_id is not None:
+        file_path = os.path.join(
+            save_path, f"{partition_id}_dataset_partitions.npz")
+    else:
+        file_path = os.path.join(save_path, "dataset_partitions.npz")
 
-        # Check if file exists
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
+    # Check if file exists
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
 
-        # Load the npz file
-        loaded_data = np.load(file_path)
+    # Load the npz file
+    loaded_data = np.load(file_path)
 
-        # Create the dictionary
-        indexes_dict = {
-            "training_set": loaded_data["training_set"],
-            "full_training_index": loaded_data["full_training"],
-            "forget_index": loaded_data["forget"],
-            "val_index": loaded_data["val"],
-            "test_index": loaded_data["test"],
-            "retrain_index": loaded_data["retrain"]
-        }
+    # Create the dictionary
+    indexes_dict = {
+        "training_set": loaded_data["training_set"],
+        "full_training_index": loaded_data["full_training"],
+        "forget_index": loaded_data["forget"],
+        "val_index": loaded_data["val"],
+        "test_index": loaded_data["test"],
+        "retrain_index": loaded_data["retrain"]
+    }
 
-        print(f"Dataset partition indexes loaded from {file_path}")
+    print(f"Dataset partition indexes loaded from {file_path}")
 
-        # Return both dictionary and individual arrays
-        return indexes_dict
-
+    # Return both dictionary and individual arrays
+    return indexes_dict
 
 
 def generate_save_path(config):
@@ -172,13 +175,15 @@ def generate_save_path(config):
         str(config["CLIENT_ID_TO_FORGET"]),
         str(config["Client_ID_TO_EXIT"]),
         str(config["UNLEARNING_CASE"]),
-        str(config["FORGET_CLASS"]).replace(" ", "").replace(":", "-").replace(",", "_").replace("{", "").replace("}", ""),
+        str(config["FORGET_CLASS"]).replace(" ", "").replace(
+            ":", "-").replace(",", "_").replace("{", "").replace("}", ""),
         config["CONFIG_ID"],
         f"{config['CONFIG_NUMBER']}_{config['SEED']}"
     )
     return saving_directory
 
-def setup_experiment(path: str = "./envs", load_model_flag = True) -> Dict:
+
+def setup_experiment(path: str = "./envs", load_model_flag=True) -> Dict:
     """Set up the experiment with configuration, directories, and model."""
     # Load configuration
     config = load_config(path)
@@ -197,7 +202,8 @@ def setup_experiment(path: str = "./envs", load_model_flag = True) -> Dict:
         json.dump(config, f, indent=4)
 
     # Load initial model
-    config["LOADED_MODEL"] = load_model(config["MODEL"], config.get("RESUME", ""))
+    config["LOADED_MODEL"] = load_model(
+        config["MODEL"], config.get("RESUME", ""))
 
     return config
 
@@ -216,7 +222,8 @@ def load_model(model_name: str, checkpoint_path: Optional[str] = None) -> torch.
         return model
 
     try:
-        checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
+        checkpoint = torch.load(
+            checkpoint_path, map_location=torch.device('cpu'))
 
         # Handle different checkpoint formats
         if "state_dict" in checkpoint:
@@ -252,7 +259,7 @@ def save_model(
     if is_best:
         filename = os.path.join(save_dir, "model_best.pth")
     elif round is not None:
-        #filename = os.path.join(save_dir, f"model_round_{round}.pth")
+        # filename = os.path.join(save_dir, f"model_round_{round}.pth")
         filename = os.path.join(save_dir, "model_latest.pth")
     else:
         filename = os.path.join(save_dir, "model_latest.pth")

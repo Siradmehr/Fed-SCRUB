@@ -164,6 +164,8 @@ def np_index_load(config, partition_id=None) -> tuple:
 
 
 def generate_save_path(config):
+    frgt = config["FORGET_CLASS"][0]
+
     saving_directory = os.path.join(
         "./checkpoints",
         config["STARTING_PHASE"],
@@ -175,7 +177,7 @@ def generate_save_path(config):
         str(config["CLIENT_ID_TO_FORGET"]),
         str(config["Client_ID_TO_EXIT"]),
         str(config["UNLEARNING_CASE"]),
-        str(config["FORGET_CLASS"]).replace(" ", "").replace(
+        str(frgt).replace(" ", "").replace(
             ":", "-").replace(",", "_").replace("{", "").replace("}", ""),
         config["CONFIG_ID"],
         f"{config['CONFIG_NUMBER']}_{config['SEED']}"

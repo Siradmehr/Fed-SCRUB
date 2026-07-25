@@ -229,3 +229,27 @@ main(
 
 # If you want ONLY the ones that actually have model_best.pth:
 # main(root="f-fumMnist", create_dirs=False, print_only_existing_best=True)
+
+
+
+
+envs/ICLR_seed101/data_level/backdoor/unlearn/N_5/2
+envs/ICLR_seed101/data_level/backdoor/unlearn/N_5/6
+envs/ICLR_seed101/data_level/backdoor/unlearn/N_5/10
+envs/ICLR_seed101/data_level/backdoor/unlearn/N_10/2
+envs/ICLR_seed101/data_level/backdoor/unlearn/N_10/6
+envs/ICLR_seed101/data_level/backdoor/unlearn/N_10/10
+
+envs/ICLR_seed101/data_level/confuse/unlearn/N_5/2
+envs/ICLR_seed101/data_level/confuse/unlearn/N_5/6
+envs/ICLR_seed101/data_level/confuse/unlearn/N_5/10
+envs/ICLR_seed101/data_level/confuse/unlearn/N_10/2
+envs/ICLR_seed101/data_level/confuse/unlearn/N_10/6
+envs/ICLR_seed101/data_level/confuse/unlearn/N_10/10
+
+envs/ICLR_seed101/data_level/privacy/unlearn/N_5/2
+envs/ICLR_seed101/data_level/privacy/unlearn/N_5/6
+envs/ICLR_seed101/data_level/privacy/unlearn/N_5/10
+envs/ICLR_seed101/data_level/privacy/unlearn/N_10/2
+envs/ICLR_seed101/data_level/privacy/unlearn/N_10/6
+envs/ICLR_seed101/data_level/privacy/unlearn/N_10/10

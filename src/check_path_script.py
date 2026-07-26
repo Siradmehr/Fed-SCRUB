@@ -51,24 +51,24 @@ def load_config(env_dir: Path) -> Dict:
 
 def generate_save_path(config: dict) -> str:
     saving_directory = (
-            Path("checkpoints")
-            / config["STARTING_PHASE"]
-            / config["MODEL"]
-            / config["DATASET"]
-            / config["LOSSCLS"]
-            / config["LOSSDIV"]
-            / config["LOSSKD"]
-            / str(config["CLIENT_ID_TO_FORGET"])
-            / str(config["Client_ID_TO_EXIT"])
-            / str(config["UNLEARNING_CASE"])
-            / str(config["FORGET_CLASS"])
-            .replace(" ", "")
-            .replace(":", "-")
-            .replace(",", "_")
-            .replace("{", "")
-            .replace("}", "")
-            / config["CONFIG_ID"]
-            / f"{config['CONFIG_NUMBER']}_{config['SEED']}"
+        Path("checkpoints")
+        / config["STARTING_PHASE"]
+        / config["MODEL"]
+        / config["DATASET"]
+        / config["LOSSCLS"]
+        / config["LOSSDIV"]
+        / config["LOSSKD"]
+        / str(config["CLIENT_ID_TO_FORGET"])
+        / str(config["Client_ID_TO_EXIT"])
+        / str(config["UNLEARNING_CASE"])
+        / str(config["FORGET_CLASS"])
+        .replace(" ", "")
+        .replace(":", "-")
+        .replace(",", "_")
+        .replace("{", "")
+        .replace("}", "")
+        / config["CONFIG_ID"]
+        / f"{config['CONFIG_NUMBER']}_{config['SEED']}"
     )
     return saving_directory.as_posix()
 
@@ -92,8 +92,10 @@ def find_pretrain_env_dirs(root: Path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--path", required=True, help="Root directory to search")
-    parser.add_argument("--out", default="best_model_paths.txt", help="Output file")
+    parser.add_argument("--path", required=True,
+                        help="Root directory to search")
+    parser.add_argument(
+        "--out", default="best_model_paths.txt", help="Output file")
     args = parser.parse_args()
 
     root = Path(args.path)
@@ -155,35 +157,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
-    
-    
-    
-envs/f-fumMnist_seed101/client_level/backdoor/pretrain/N_5/.env
-envs/f-fumMnist_seed101/client_level/backdoor/pretrain/N_5/.env
-envs/f-fumMnist_seed101/client_level/backdoor/pretrain/N_10/.env
-envs/f-fumMnist_seed101/client_level/confuse/pretrain/N_5/.env
-envs/f-fumMnist_seed101/client_level/confuse/pretrain/N_10/.env
-envs/f-fumMnist_seed101/client_level/privacy/pretrain/N_5/.env
-envs/f-fumMnist_seed101/client_level/privacy/pretrain/N_10/.env
-
-envs/f-fumMnist_seed101/data_level/backdoor/pretrain/N_5/2/.env
-envs/f-fumMnist_seed101/data_level/backdoor/pretrain/N_5/6/.env
-envs/f-fumMnist_seed101/data_level/backdoor/pretrain/N_5/10/.env
-envs/f-fumMnist_seed101/data_level/backdoor/pretrain/N_10/2/.env
-envs/f-fumMnist_seed101/data_level/backdoor/pretrain/N_10/6/.env
-envs/f-fumMnist_seed101/data_level/backdoor/pretrain/N_10/10/.env
-
-envs/f-fumMnist_seed101/data_level/confuse/pretrain/N_5/2/.env
-envs/f-fumMnist_seed101/data_level/confuse/pretrain/N_5/6/.env
-envs/f-fumMnist_seed101/data_level/confuse/pretrain/N_5/10/.env
-envs/f-fumMnist_seed101/data_level/confuse/pretrain/N_10/2/.env
-envs/f-fumMnist_seed101/data_level/confuse/pretrain/N_10/6/.env
-envs/f-fumMnist_seed101/data_level/confuse/pretrain/N_10/10/.env
-
-envs/f-fumMnist_seed101/data_level/privacy/pretrain/N_5/2/.env
-envs/f-fumMnist_seed101/data_level/privacy/pretrain/N_5/6/.env
-envs/f-fumMnist_seed101/data_level/privacy/pretrain/N_5/10/.env
-envs/f-fumMnist_seed101/data_level/privacy/pretrain/N_10/2/.env
-envs/f-fumMnist_seed101/data_level/privacy/pretrain/N_10/6/.env
-envs/f-fumMnist_seed101/data_level/privacy/pretrain/N_10/10/.env

@@ -155,3 +155,35 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
+    
+    
+    
+envs/f-fumMnist_seed101/client_level/backdoor/pretrain/N_5/.env
+envs/f-fumMnist_seed101/client_level/backdoor/pretrain/N_5/.env
+envs/f-fumMnist_seed101/client_level/backdoor/pretrain/N_10/.env
+envs/f-fumMnist_seed101/client_level/confuse/pretrain/N_5/.env
+envs/f-fumMnist_seed101/client_level/confuse/pretrain/N_10/.env
+envs/f-fumMnist_seed101/client_level/privacy/pretrain/N_5/.env
+envs/f-fumMnist_seed101/client_level/privacy/pretrain/N_10/.env
+
+envs/f-fumMnist_seed101/data_level/backdoor/pretrain/N_5/2/.env
+envs/f-fumMnist_seed101/data_level/backdoor/pretrain/N_5/6/.env
+envs/f-fumMnist_seed101/data_level/backdoor/pretrain/N_5/10/.env
+envs/f-fumMnist_seed101/data_level/backdoor/pretrain/N_10/2/.env
+envs/f-fumMnist_seed101/data_level/backdoor/pretrain/N_10/6/.env
+envs/f-fumMnist_seed101/data_level/backdoor/pretrain/N_10/10/.env
+
+envs/f-fumMnist_seed101/data_level/confuse/pretrain/N_5/2/.env
+envs/f-fumMnist_seed101/data_level/confuse/pretrain/N_5/6/.env
+envs/f-fumMnist_seed101/data_level/confuse/pretrain/N_5/10/.env
+envs/f-fumMnist_seed101/data_level/confuse/pretrain/N_10/2/.env
+envs/f-fumMnist_seed101/data_level/confuse/pretrain/N_10/6/.env
+envs/f-fumMnist_seed101/data_level/confuse/pretrain/N_10/10/.env
+
+envs/f-fumMnist_seed101/data_level/privacy/pretrain/N_5/2/.env
+envs/f-fumMnist_seed101/data_level/privacy/pretrain/N_5/6/.env
+envs/f-fumMnist_seed101/data_level/privacy/pretrain/N_5/10/.env
+envs/f-fumMnist_seed101/data_level/privacy/pretrain/N_10/2/.env
+envs/f-fumMnist_seed101/data_level/privacy/pretrain/N_10/6/.env
+envs/f-fumMnist_seed101/data_level/privacy/pretrain/N_10/10/.env

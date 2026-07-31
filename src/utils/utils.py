@@ -17,6 +17,31 @@ INT_KEYS = [
 FLOAT_KEYS = ["NON_IID_DP"]
 
 
+def _parse_bool(value, key: str) -> bool:
+    """Parse a configuration Boolean without treating non-empty strings as true."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+
+    normalized = str(value).strip().lower()
+    if normalized in {"true", "1", "yes", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "off", "", "none", "null"}:
+        return False
+    raise ValueError(f"Invalid Boolean value for {key}: {value!r}")
+
+
+def _normalize_checkpoint_path(value) -> Optional[str]:
+    """Return a usable checkpoint path, or None for an empty/null value."""
+    if value is None:
+        return None
+    checkpoint_path = str(value).strip()
+    if not checkpoint_path or checkpoint_path.lower() in {"none", "null"}:
+        return None
+    return checkpoint_path
+
+
 def set_seed(seed: int) -> None:
     """Set random seeds for reproducibility."""
     np.random.seed(seed)
@@ -71,6 +96,10 @@ def load_config(path: str = "./envs") -> Dict:
     for key in FLOAT_KEYS:
         if key in config:
             config[key] = float(config[key])
+
+    config["Resume_Training"] = _parse_bool(
+        config.get("Resume_Training", False), "Resume_Training"
+    )
 
     # Process comma-separated integer lists
     for key in ["CLIENT_ID_TO_FORGET", "LR_ROUND", "Client_ID_TO_EXIT"]:
@@ -185,6 +214,25 @@ def generate_save_path(config):
     return saving_directory
 
 
+def resolve_initial_checkpoint(config: Dict) -> tuple[Optional[str], str]:
+    """Resolve the initial checkpoint using explicit RESUME as highest priority."""
+    explicit_resume = _normalize_checkpoint_path(config.get("RESUME"))
+    if explicit_resume is not None:
+        return explicit_resume, "explicit_resume"
+
+    starting_phase = str(config.get("STARTING_PHASE", "")).strip().upper()
+    resume_training = _parse_bool(
+        config.get("Resume_Training", False), "Resume_Training"
+    )
+    if starting_phase == "PRETRAIN" and resume_training:
+        latest_checkpoint = os.path.join(
+            config["SAVING_DIR"], "models_chkpts", "model_latest.pth"
+        )
+        return latest_checkpoint, "derived_latest"
+
+    return None, "random"
+
+
 def setup_experiment(path: str = "./envs", load_model_flag=True) -> Dict:
     """Set up the experiment with configuration, directories, and model."""
     # Load configuration
@@ -194,6 +242,10 @@ def setup_experiment(path: str = "./envs", load_model_flag=True) -> Dict:
     saving_directory = generate_save_path(config)
     os.makedirs(saving_directory, exist_ok=True)
     config["SAVING_DIR"] = saving_directory
+
+    checkpoint_path, initialization_source = resolve_initial_checkpoint(config)
+    config["INITIALIZATION_SOURCE"] = initialization_source
+    config["INITIAL_CHECKPOINT"] = checkpoint_path or ""
 
     # Save configuration
     config_path = os.path.join(saving_directory, "custom_config.json")
@@ -205,22 +257,35 @@ def setup_experiment(path: str = "./envs", load_model_flag=True) -> Dict:
 
     # Load initial model
     config["LOADED_MODEL"] = load_model(
-        config["MODEL"], config.get("RESUME", ""))
+        config["MODEL"],
+        checkpoint_path,
+        strict_checkpoint=checkpoint_path is not None,
+    )
 
     return config
 
 
-def load_model(model_name: str, checkpoint_path: Optional[str] = None) -> torch.nn.Module:
+def load_model(
+        model_name: str,
+        checkpoint_path: Optional[str] = None,
+        strict_checkpoint: bool = False,
+) -> torch.nn.Module:
     """Load a model and initialize from checkpoint if provided."""
+    checkpoint_path = _normalize_checkpoint_path(checkpoint_path)
+    if checkpoint_path is not None and not os.path.isfile(checkpoint_path):
+        message = f"No checkpoint found at {checkpoint_path}"
+        if strict_checkpoint:
+            raise FileNotFoundError(message)
+        print(f"Warning: {message}")
+
     model = get_model(model_name)
     print(f"Model '{model_name}' initialized")
 
-    if not checkpoint_path or checkpoint_path in ("None", ""):
+    if checkpoint_path is None:
         print("Using freshly initialized model (no checkpoint loaded)")
         return model
 
     if not os.path.isfile(checkpoint_path):
-        print(f"Warning: No checkpoint found at {checkpoint_path}")
         return model
 
     try:
@@ -241,6 +306,10 @@ def load_model(model_name: str, checkpoint_path: Optional[str] = None) -> torch.
 
         print(f"Checkpoint loaded from {checkpoint_path}")
     except Exception as e:
+        if strict_checkpoint:
+            raise RuntimeError(
+                f"Failed to load required checkpoint {checkpoint_path}: {e}"
+            ) from e
         print(f"Error loading checkpoint: {str(e)}")
 
     return model

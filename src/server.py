@@ -168,7 +168,11 @@ class FedCustom(FedAvg):
         # Initialize logging
 
         self.log_data = pd.DataFrame(
-            columns=["Phase","Iter","TRAINING_LOSS", "TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "VAL_LOSS", "VAL_ACC", "MIA", "IC_ERR", "FGT_ERR"]
+            columns=[
+                "Phase", "Iter", "TRAINING_LOSS", "TRAINING_ACC",
+                "FORGET_LOSS", "FORGET_ACC", "CONFUSE_ACC", "BACKDOOR_ASR",
+                "VAL_LOSS", "VAL_ACC", "MIA", "IC_ERR", "FGT_ERR"
+            ]
         )
         self.round_log = [0 for i in self.log_data.columns]
 
@@ -363,6 +367,14 @@ class FedCustom(FedAvg):
             (res.metrics["forget_size"], res.metrics["forget_acc"])
             for _, res in results if res.metrics["forget_size"] > 0
         ])
+        confuse_acc = weighted_loss_avg_custom([
+            (res.metrics["confuse_size"], res.metrics["confuse_acc"])
+            for _, res in results if res.metrics["confuse_size"] > 0
+        ])
+        backdoor_asr = weighted_loss_avg_custom([
+            (res.metrics["backdoor_size"], res.metrics["backdoor_asr"])
+            for _, res in results if res.metrics["backdoor_size"] > 0
+        ])
         val_loss = weighted_loss_avg_custom([
             (res.metrics["eval_size"], res.metrics["eval_loss"])
             for _, res in results if res.metrics["eval_size"] > 0
@@ -391,6 +403,8 @@ class FedCustom(FedAvg):
         # Log metrics
         self.round_log[self.log_data.columns.get_loc("FORGET_LOSS")] = forget_loss
         self.round_log[self.log_data.columns.get_loc("FORGET_ACC")] = forget_acc
+        self.round_log[self.log_data.columns.get_loc("CONFUSE_ACC")] = confuse_acc
+        self.round_log[self.log_data.columns.get_loc("BACKDOOR_ASR")] = backdoor_asr
         self.round_log[self.log_data.columns.get_loc("VAL_LOSS")] = val_loss
         self.round_log[self.log_data.columns.get_loc("VAL_ACC")] = val_acc
         self.round_log[self.log_data.columns.get_loc("MIA")] = mia
@@ -502,6 +516,10 @@ def server_fn(context: Context) -> ServerAppComponents:
         import wandb
         globals()["wandb"] = wandb
         custom_config = overwite_wandb_config(custom_config)
+
+    print(f"Initialization source: {custom_config['INITIALIZATION_SOURCE']}")
+    if custom_config["INITIAL_CHECKPOINT"]:
+        print(f"Initial checkpoint: {custom_config['INITIAL_CHECKPOINT']}")
 
     set_seed(int(custom_config["SEED"]))
     print(custom_config)

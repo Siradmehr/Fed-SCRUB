@@ -25,6 +25,7 @@ In .env you have to set these parameters:
 ```
 NAME=fed_fscrub
 RESUME=
+Resume_Training=false
 DATASET=mnist
 DATAROOT=data/mnist
 MODEL=LeNet5
@@ -80,6 +81,16 @@ CLIENT_RESOURCES_NUM_CPUS: number of cpus allocated for each client.
 CLIENT_RESOURCES_NUM_GPUS: number of gpus allocated for each client.
 
 STARTING_PHASE: the starting phase of the training. Options are "PRETRAIN", "MAX", "MIN".
+
+RESUME and Resume_Training control model initialization with the following priority:
+
+1. A non-empty RESUME path is always loaded, regardless of Resume_Training.
+2. Otherwise, when STARTING_PHASE is PRETRAIN and Resume_Training=true, the run loads
+   `<SAVING_DIR>/models_chkpts/model_latest.pth`.
+3. Otherwise, the model starts from a fresh random initialization.
+
+If an explicit or derived checkpoint is missing or incompatible, startup fails with an error
+instead of silently falling back to random initialization.
 
 LAST_MAX_STEPS: number of last rounds to perform Max phase.
 

@@ -324,6 +324,8 @@ class FlowerClient(NumPyClient):
     def _parse_config(self, config: dict) -> TrainingConfig:
         """Parse configuration into TrainingConfig object"""
         try:
+            forget_clients = self.config_manager.config.get("CLIENT_ID_TO_FORGET", [])
+            remove_clients = self.config_manager.config.get("Client_ID_TO_EXIT", [])
             return TrainingConfig(
                 lr=config.get("lr", 0.001),
                 local_epochs=config.get("local_epochs", 1),
@@ -333,8 +335,8 @@ class FlowerClient(NumPyClient):
                 beta=float(config.get("BETA", 0.5)),
                 gamma=float(config.get("GAMMA", 0.5)),
                 phase=TrainingPhase(config.get("Phase", "LEARN")),
-                remove=config.get("REMOVE", "FALSE") == "TRUE",
-                unlearn_con=config.get("UNLEARN_CON", "FALSE") == "TRUE",
+                remove=self.partition_id in remove_clients,
+                unlearn_con=self.partition_id in forget_clients,
                 teacher_init=config.get("TEACHER", "") == "INIT"
             )
         except (ValueError, KeyError) as e:
@@ -523,14 +525,20 @@ class FlowerClient(NumPyClient):
                 self.device
             )
 
-            # Evaluate on forgotten data
-            max_loss, max_acc, max_size, mia_score = 0, 0, 0, 0
+            # Evaluate true-label and transformed versions of the forget data separately.
+            forget_loss, forget_acc, forget_size, mia_score = 0, 0, 0, 0
+            confuse_acc, confuse_size = 0, 0
+            backdoor_asr, backdoor_size = 0, 0
             ic_micro, fgt_micro = 0, 0
-            if training_config.unlearn_con and self.forget_loader and len(self.forget_loader) > 0:
-                max_loss, max_acc, max_size = _eval_mode(
+            if (
+                training_config.unlearn_con
+                and self.original_forget_loader
+                and len(self.original_forget_loader) > 0
+            ):
+                forget_loss, forget_acc, forget_size = _eval_mode(
                     self.loss_manager.criterion_cls,
                     self.net,
-                    self.forget_loader,
+                    self.original_forget_loader,
                     self.device
                 )
 
@@ -543,13 +551,29 @@ class FlowerClient(NumPyClient):
                 ic_micro = results_fgt["IC_ERR_micro"]
                 fgt_micro = results_fgt["FGT_ERR_micro"]
 
+                unlearning_case = str(
+                    self.config_manager.config.get("UNLEARNING_CASE", "NONE")
+                ).upper()
+                if self.forget_loader and len(self.forget_loader) > 0:
+                    _, transformed_acc, transformed_size = _eval_mode(
+                        self.loss_manager.criterion_cls,
+                        self.net,
+                        self.forget_loader,
+                        self.device
+                    )
+                    if unlearning_case == "CONFUSE":
+                        confuse_acc = transformed_acc
+                        confuse_size = transformed_size
+                    elif unlearning_case == "BACKDOOR":
+                        backdoor_asr = transformed_acc
+                        backdoor_size = transformed_size
 
                 # Calculate MIA score
                 #todo only on forget set of those participating.
                 mia_score = compute_mia_score_scrub(
                     self.net,
                     self.val_loader,
-                    self.forget_loader,
+                    self.original_forget_loader,
                     self.device,
                     self.config_manager.config["SEED"]
                 )
@@ -558,9 +582,13 @@ class FlowerClient(NumPyClient):
                 "eval_loss": loss,
                 "eval_acc": accuracy,
                 "eval_size": eval_size,
-                "forget_loss": max_loss,
-                "forget_acc": max_acc,
-                "forget_size": max_size,
+                "forget_loss": forget_loss,
+                "forget_acc": forget_acc,
+                "forget_size": forget_size,
+                "confuse_acc": confuse_acc,
+                "confuse_size": confuse_size,
+                "backdoor_asr": backdoor_asr,
+                "backdoor_size": backdoor_size,
                 "mia_score": mia_score,
                 "ic": ic_micro,
                 "fgt": fgt_micro,

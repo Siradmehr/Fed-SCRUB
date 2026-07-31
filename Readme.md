@@ -129,6 +129,9 @@ VAL_BATCH=32
 TEST_BATCH=32
 ```
 
+LR is the initial client learning rate. The server applies cosine decay from this
+value over NUM_ROUNDS and sends the resulting rate to clients each round.
+
 Important parameters are:
 BATCH sizes for training, forgetting, validation, and testing.
 LOSSCLS, LOSSKD, and LOSSDIV: loss functions KL AND JS.

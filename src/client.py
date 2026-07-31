@@ -32,7 +32,6 @@ class TrainingPhase(Enum):
     Not = "NoT"
     NoT_MIN = "NoT_MIN"
 
-
 @dataclass
 class TrainingConfig:
     """Configuration for training parameters"""
@@ -124,7 +123,8 @@ class PhaseTrainer:
         if not dataloader or len(dataloader) == 0:
             return TrainingMetrics(), 0
 
-        logger.info(f"LEARN phase: {epochs} epochs over {len(dataloader)} batches")
+        logger.info(
+            f"LEARN phase: {epochs} epochs over {len(dataloader)} batches")
 
         total_loss, total_correct, total_samples = 0.0, 0, 0
 
@@ -142,7 +142,8 @@ class PhaseTrainer:
                 loss.backward()
 
                 # Gradient clipping
-                nn.utils.clip_grad_value_(self.model.parameters(), clip_value=0.5)
+                nn.utils.clip_grad_value_(
+                    self.model.parameters(), clip_value=0.5)
                 optimizer.step()
 
                 # Track metrics
@@ -152,7 +153,8 @@ class PhaseTrainer:
                     total_correct += (preds == labels).sum().item()
                     total_samples += images.size(0)
 
-        loss_avg, accuracy = _calculate_metrics(total_loss, total_correct, total_samples)
+        loss_avg, accuracy = _calculate_metrics(
+            total_loss, total_correct, total_samples)
         return TrainingMetrics(loss=loss_avg, accuracy=accuracy, samples=total_samples), total_samples
 
     def train_max_phase(self, forget_loader, epochs: int, optimizer) -> Tuple[TrainingMetrics, int]:
@@ -163,7 +165,8 @@ class PhaseTrainer:
         if not self.teacher_model:
             raise ValueError("Teacher model required for MAX phase")
 
-        logger.info(f"MAX phase: {epochs} epochs over {len(forget_loader)} batches")
+        logger.info(
+            f"MAX phase: {epochs} epochs over {len(forget_loader)} batches")
 
         total_loss, total_correct, total_samples = 0.0, 0, 0
 
@@ -186,7 +189,9 @@ class PhaseTrainer:
                 if isinstance(student_outputs, ImageClassifierOutput):
                     student_outputs = student_outputs.logits
                 # Negative loss to maximize divergence
-                loss = -self.loss_manager.criterion_kd(student_outputs, teacher_probs)
+                loss = - \
+                    self.loss_manager.criterion_kd(
+                        student_outputs, teacher_probs)
                 loss.backward()
                 optimizer.step()
 
@@ -197,7 +202,8 @@ class PhaseTrainer:
                     total_correct += (preds == labels).sum().item()
                     total_samples += images.size(0)
 
-        loss_avg, accuracy = _calculate_metrics(total_loss, total_correct, total_samples)
+        loss_avg, accuracy = _calculate_metrics(
+            total_loss, total_correct, total_samples)
         return TrainingMetrics(loss=loss_avg, accuracy=accuracy, samples=total_samples), total_samples
 
     def train_min_phase(self, retain_loader, forget_loader, epochs: int,
@@ -211,7 +217,8 @@ class PhaseTrainer:
 
         # Process retain data
         if retain_loader and len(retain_loader) > 0:
-            logger.info(f"MIN phase (retain): {epochs} epochs over {len(retain_loader)} batches")
+            logger.info(
+                f"MIN phase (retain): {epochs} epochs over {len(retain_loader)} batches")
             metrics, samples = self._process_min_data(
                 retain_loader, epochs, optimizer, config.gamma, config.alpha
             )
@@ -221,7 +228,8 @@ class PhaseTrainer:
 
         # Process forget data if not using contrastive unlearning
         if not config.unlearn_con and forget_loader and len(forget_loader) > 0:
-            logger.info(f"MIN phase (forget): {epochs} epochs over {len(forget_loader)} batches")
+            logger.info(
+                f"MIN phase (forget): {epochs} epochs over {len(forget_loader)} batches")
             metrics, samples = self._process_min_data(
                 forget_loader, epochs, optimizer, config.gamma, config.alpha
             )
@@ -260,8 +268,10 @@ class PhaseTrainer:
                 if isinstance(student_outputs, ImageClassifierOutput):
                     student_outputs = student_outputs.logits
 
-                loss_cls = self.loss_manager.criterion_cls(student_outputs, labels)
-                loss_div = self.loss_manager.criterion_div(student_outputs, teacher_probs)
+                loss_cls = self.loss_manager.criterion_cls(
+                    student_outputs, labels)
+                loss_div = self.loss_manager.criterion_div(
+                    student_outputs, teacher_probs)
 
                 loss = gamma * loss_cls + alpha * loss_div
                 loss.backward()
@@ -274,7 +284,8 @@ class PhaseTrainer:
                     total_correct += (preds == labels).sum().item()
                     total_samples += images.size(0)
 
-        loss_avg, accuracy = _calculate_metrics(total_loss, total_correct, total_samples)
+        loss_avg, accuracy = _calculate_metrics(
+            total_loss, total_correct, total_samples)
         return TrainingMetrics(loss=loss_avg, accuracy=accuracy), total_samples
 
 
@@ -297,13 +308,14 @@ class FlowerClient(NumPyClient):
 
         # Initialize components
         self.loss_manager = LossManager(config_manager.config)
-        self.phase_trainer = PhaseTrainer(self.net, self.device, self.loss_manager)
+        self.phase_trainer = PhaseTrainer(
+            self.net, self.device, self.loss_manager)
 
         # Move model to device
         self.net.to(self.device)
 
-
-        logger.info(f"Client {partition_id} initialized on device: {self.device}")
+        logger.info(
+            f"Client {partition_id} initialized on device: {self.device}")
 
     def get_parameters(self) -> List[np.ndarray]:
         """Get model parameters as numpy arrays"""
@@ -315,7 +327,8 @@ class FlowerClient(NumPyClient):
         logger.debug(f"[Client {self.partition_id}] set_parameters")
         try:
             params_dict = zip(self.net.state_dict().keys(), parameters)
-            state_dict = OrderedDict({k: torch.tensor(v) for k, v in params_dict})
+            state_dict = OrderedDict({k: torch.tensor(v)
+                                     for k, v in params_dict})
             self.net.load_state_dict(state_dict)
         except Exception as e:
             logger.error(f"Failed to set parameters: {e}")
@@ -324,8 +337,10 @@ class FlowerClient(NumPyClient):
     def _parse_config(self, config: dict) -> TrainingConfig:
         """Parse configuration into TrainingConfig object"""
         try:
-            forget_clients = self.config_manager.config.get("CLIENT_ID_TO_FORGET", [])
-            remove_clients = self.config_manager.config.get("Client_ID_TO_EXIT", [])
+            forget_clients = self.config_manager.config.get(
+                "CLIENT_ID_TO_FORGET", [])
+            remove_clients = self.config_manager.config.get(
+                "Client_ID_TO_EXIT", [])
             return TrainingConfig(
                 lr=config.get("lr", 0.001),
                 local_epochs=config.get("local_epochs", 1),
@@ -357,7 +372,7 @@ class FlowerClient(NumPyClient):
             logger.error(f"Failed to initialize teacher model: {e}")
             raise
 
-    def _negate_layers(self, layer_indices=[0,1]):
+    def _negate_layers(self, layer_indices=[0, 1]):
         print("negating weights of layers:", layer_indices)
         if layer_indices is None:
             layer_indices = range(sum(1 for _ in self.net.parameters()))
@@ -370,6 +385,7 @@ class FlowerClient(NumPyClient):
                     p.mul_(-1.0)     # in-place: p = -p
 
         return self.net
+
     def _train_model(self, training_config: TrainingConfig) -> Tuple[dict, int]:
         """Train model based on configuration"""
         logger.info(f"Starting training phase: {training_config.phase}")
@@ -379,13 +395,12 @@ class FlowerClient(NumPyClient):
             betas=(0.9, 0.999)
         )
         if training_config.phase == TrainingPhase.Not:
-            #disturb weights slightly
+            # disturb weights slightly
             self.net = self._negate_layers()
             return {
-            "loss": 0,
-            "accuracy": 0,
-        }, len(self.train_loader.dataset)
-
+                "loss": 0,
+                "accuracy": 0,
+            }, len(self.train_loader.dataset)
 
         if training_config.phase == TrainingPhase.NoT_MIN:
             training_config.phase = TrainingPhase.MIN
@@ -402,9 +417,9 @@ class FlowerClient(NumPyClient):
             return self._handle_min_phase(training_config, optimizer)
         else:
             return {
-            "loss": 0,
-            "accuracy": 0,
-        }, len(self.train_loader.dataset)
+                "loss": 0,
+                "accuracy": 0,
+            }, len(self.train_loader.dataset)
 
     def _handle_pretrain_phase(self, config: TrainingConfig, optimizer) -> Tuple[dict, int]:
         print("Handle PRETRAIN phase")
@@ -502,11 +517,13 @@ class FlowerClient(NumPyClient):
                 "train_accuracy": metrics_dict["accuracy"],
             }
 
-            logger.info(f"Client {self.partition_id} training completed: {metrics}")
+            logger.info(
+                f"Client {self.partition_id} training completed: {metrics}")
             return self.get_parameters(), num_samples, metrics
 
         except Exception as e:
-            logger.error(f"Training failed for client {self.partition_id}: {e}")
+            logger.error(
+                f"Training failed for client {self.partition_id}: {e}")
             raise
 
     def evaluate(self, parameters: List[np.ndarray], config: dict) -> Tuple[float, int, dict]:
@@ -569,7 +586,7 @@ class FlowerClient(NumPyClient):
                         backdoor_size = transformed_size
 
                 # Calculate MIA score
-                #todo only on forget set of those participating.
+                # todo only on forget set of those participating.
                 mia_score = compute_mia_score_scrub(
                     self.net,
                     self.val_loader,
@@ -594,11 +611,13 @@ class FlowerClient(NumPyClient):
                 "fgt": fgt_micro,
             }
 
-            logger.info(f"Client {self.partition_id} evaluation completed: {metrics}")
+            logger.info(
+                f"Client {self.partition_id} evaluation completed: {metrics}")
             return loss, eval_size, metrics
 
         except Exception as e:
-            logger.error(f"Evaluation failed for client {self.partition_id}: {e}")
+            logger.error(
+                f"Evaluation failed for client {self.partition_id}: {e}")
             raise
 
 
@@ -626,7 +645,8 @@ def client_fn(context: Context) -> Client:
         net = custom_config["LOADED_MODEL"]
         #
         # Set up forget class configuration
-        forget_set_config = {i: 0.0 for i in range(int(custom_config["NUM_CLASSES"]))}
+        forget_set_config = {i: 0.0 for i in range(
+            int(custom_config["NUM_CLASSES"]))}
         forget_set_config.update(custom_config.get("FORGET_CLASS", {}))
 
         # Load datasets

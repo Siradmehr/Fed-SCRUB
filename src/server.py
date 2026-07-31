@@ -544,7 +544,10 @@ def server_fn(context: Context) -> ServerAppComponents:
         min_available_clients=min_clients,
         initial_parameters=parameters,
         lr=float(custom_config["LR"]),
-        scheduler=FederatedScheduler(),
+        scheduler=FederatedScheduler(
+            initial_lr=float(custom_config["LR"]),
+            total_rounds=num_rounds,
+        ),
     )
     print(strategy.lr_scheduler)
     

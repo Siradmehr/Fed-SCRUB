@@ -1,3 +1,6 @@
+from flwr.common import FitRes, NDArray, NDArrays, parameters_to_ndarrays
+from typing import Any, Callable, Union
+from functools import partial, reduce
 import os
 import sys
 import time
@@ -34,72 +37,68 @@ from .utils.lr_scheduler import FederatedScheduler
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 os.environ['TORCH_USE_CUDA_DSA'] = "1"
 
-from functools import partial, reduce
-from typing import Any, Callable, Union
-
-import numpy as np
-
-from flwr.common import FitRes, NDArray, NDArrays, parameters_to_ndarrays
-from flwr.server.client_proxy import ClientProxy
 
 def aggregate_with_policy(config, results: list[tuple[NDArrays, int]], previous_model) -> NDArrays:
+    """Compute weighted average."""
+    # TODO base on the measures
+    # If POLICY is MAX instead of the avg you should choose the max gradient among clients instead of avg (but in the difference meaning client i model weights - previous model weights)
+    # if Policy is MIN instead of the avg you should choose the min gradient among clients instead of avg (but in the difference meaning client i model weights - previous model weights)
+    # if Policy is Median instead of the avg you should choose the median gradient among clients instead of avg (but in the difference meaning client i model weights - previous model weights)
+    # the way we calculated the score for max, min, median is determined in GRADIENT_ACCUMULATION_POLICY if it is L2, this means L2 norm,
 
+    num_examples_total = sum(num_examples for (_, num_examples) in results)
+    """Aggregate gradients based on policy and measure."""
+    POLICY = config["GRADIENT_ACCUMULATION_POLICY"]
+    MEASURE = config["GRADIENT_ACCUMULATION_MEASURE"]
 
-        """Compute weighted average."""
-        #TODO base on the measures
-        # If POLICY is MAX instead of the avg you should choose the max gradient among clients instead of avg (but in the difference meaning client i model weights - previous model weights)
-        # if Policy is MIN instead of the avg you should choose the min gradient among clients instead of avg (but in the difference meaning client i model weights - previous model weights)
-        # if Policy is Median instead of the avg you should choose the median gradient among clients instead of avg (but in the difference meaning client i model weights - previous model weights)
-        # the way we calculated the score for max, min, median is determined in GRADIENT_ACCUMULATION_POLICY if it is L2, this means L2 norm,
+    # Compute gradients (client_weights - previous_model)
+    gradients = []
+    for weights, num_examples in results:
+        grad = [w - p for w, p in zip(weights, previous_model)]
+        gradients.append((grad, num_examples))
 
-        num_examples_total = sum(num_examples for (_, num_examples) in results)
-        """Aggregate gradients based on policy and measure."""
-        POLICY = config["GRADIENT_ACCUMULATION_POLICY"]
-        MEASURE = config["GRADIENT_ACCUMULATION_MEASURE"]
+    # Compute measure for each gradient
+    if MEASURE == "L2":
+        scores = [np.sqrt(sum(np.sum(g ** 2) for g in grad))
+                  for grad, _ in gradients]
+    else:
+        raise ValueError(f"Unknown measure: {MEASURE}")
 
-        # Compute gradients (client_weights - previous_model)
-        gradients = []
-        for weights, num_examples in results:
-            grad = [w - p for w, p in zip(weights, previous_model)]
-            gradients.append((grad, num_examples))
+    # Select/aggregate based on policy
+    if POLICY == "MAX":
+        idx = np.argmax(scores)
+        selected_grad = gradients[idx][0]
+    elif POLICY == "MIN":
+        idx = np.argmin(scores)
+        selected_grad = gradients[idx][0]
+    elif POLICY == "MEDIAN":
+        idx = np.argsort(scores)[len(scores) // 2]
+        selected_grad = gradients[idx][0]
+    else:  # AVG/MEAN (default)
+        num_examples_total = sum(num_examples for _, num_examples in gradients)
+        weighted_grads = [[layer * num_examples for layer in grad]
+                          for grad, num_examples in gradients]
+        selected_grad = [reduce(np.add, layer_updates) / num_examples_total
+                         for layer_updates in zip(*weighted_grads)]
 
-        # Compute measure for each gradient
-        if MEASURE == "L2":
-            scores = [np.sqrt(sum(np.sum(g ** 2) for g in grad)) for grad, _ in gradients]
-        else:
-            raise ValueError(f"Unknown measure: {MEASURE}")
+    # Apply gradient to get new weights
+    return [p + g for p, g in zip(previous_model, selected_grad)]
 
-        # Select/aggregate based on policy
-        if POLICY == "MAX":
-            idx = np.argmax(scores)
-            selected_grad = gradients[idx][0]
-        elif POLICY == "MIN":
-            idx = np.argmin(scores)
-            selected_grad = gradients[idx][0]
-        elif POLICY == "MEDIAN":
-            idx = np.argsort(scores)[len(scores) // 2]
-            selected_grad = gradients[idx][0]
-        else:  # AVG/MEAN (default)
-            num_examples_total = sum(num_examples for _, num_examples in gradients)
-            weighted_grads = [[layer * num_examples for layer in grad]
-                              for grad, num_examples in gradients]
-            selected_grad = [reduce(np.add, layer_updates) / num_examples_total
-                             for layer_updates in zip(*weighted_grads)]
-
-        # Apply gradient to get new weights
-        return [p + g for p, g in zip(previous_model, selected_grad)]
 
 def weighted_loss_avg_custom(results: list[tuple[int, float]]) -> float:
-        """Aggregate evaluation results obtained from multiple clients."""
-        num_total_evaluation_examples = sum(num_examples for (num_examples, _) in results)
-        if num_total_evaluation_examples == 0:
-            return 0.0
-        weighted_losses = [num_examples * loss for num_examples, loss in results]
-        return sum(weighted_losses) / num_total_evaluation_examples
+    """Aggregate evaluation results obtained from multiple clients."""
+    num_total_evaluation_examples = sum(
+        num_examples for (num_examples, _) in results)
+    if num_total_evaluation_examples == 0:
+        return 0.0
+    weighted_losses = [num_examples * loss for num_examples, loss in results]
+    return sum(weighted_losses) / num_total_evaluation_examples
+
+
 def weighted_loss_quantile_custom(results: list[tuple[int, float]], tau: float = 0.5) -> float:
     if not results or not 0 <= tau <= 1:
         return 0.0
-    
+
     weights = [num_examples for num_examples, _ in results]
     losses = [loss for _, loss in results]
 
@@ -123,6 +122,8 @@ def weighted_loss_quantile_custom(results: list[tuple[int, float]], tau: float =
         elif cumulative_weight == target_weight and i < len(weighted_losses) - 1:
             return (loss + weighted_losses[i + 1][0]) / 2
     return weighted_losses[-1][0]
+
+
 class FedCustom(FedAvg):
     """Custom Federated Learning strategy with phased learning for unlearning tasks."""
 
@@ -169,14 +170,12 @@ class FedCustom(FedAvg):
 
         self.log_data = pd.DataFrame(
             columns=[
-                "Phase", "Iter", "TRAINING_LOSS", "TRAINING_ACC",
+                "Phase", "Iter", "LR", "TRAINING_LOSS", "TRAINING_ACC",
                 "FORGET_LOSS", "FORGET_ACC", "CONFUSE_ACC", "BACKDOOR_ASR",
                 "VAL_LOSS", "VAL_ACC", "MIA", "IC_ERR", "FGT_ERR"
             ]
         )
         self.round_log = [0 for i in self.log_data.columns]
-
-
 
     def __repr__(self) -> str:
         return "FedCustom"
@@ -190,7 +189,8 @@ class FedCustom(FedAvg):
     ) -> List[Tuple[ClientProxy, FitIns]]:
         """Configure the next round of training."""
         # Sample clients
-        sample_size, min_num_clients = self.num_fit_clients(client_manager.num_available())
+        sample_size, min_num_clients = self.num_fit_clients(
+            client_manager.num_available())
         clients = client_manager.sample(
             num_clients=sample_size, min_num_clients=min_num_clients
         )
@@ -200,6 +200,7 @@ class FedCustom(FedAvg):
         self.round_log = [0 for i in self.log_data.columns]
 
         self.lr = self.lr_scheduler.current_lr
+        self.round_log[self.log_data.columns.get_loc("LR")] = self.lr
         self.lr_scheduler.update_after_round()
 
         # Create base configuration
@@ -225,7 +226,8 @@ class FedCustom(FedAvg):
                 client_config["UNLEARN_CON"] = "TRUE"
                 if idx in remove_clients:
                     client_config["REMOVE"] = "TRUE"
-            fit_configurations.append((client, FitIns(parameters, client_config)))
+            fit_configurations.append(
+                (client, FitIns(parameters, client_config)))
 
         return fit_configurations
 
@@ -254,7 +256,8 @@ class FedCustom(FedAvg):
             failures: List[Union[Tuple[ClientProxy, FitRes], Any]],
     ) -> Tuple[Optional[Parameters], Dict[str, Scalar]]:
         """Aggregate fit results using weighted average."""
-        print(f"Aggregating updates from {len(results)} clients, {len(failures)} failures")
+        print(
+            f"Aggregating updates from {len(results)} clients, {len(failures)} failures")
 
         if failures:
             print(f"Failures: {failures}")
@@ -265,14 +268,17 @@ class FedCustom(FedAvg):
             for _, fit_res in results if fit_res.num_examples > 0
         ]
 
-        print(f"Aggregating round {server_round}, phase={self.current_phase}, valid results={len(weights_results)}")
+        print(
+            f"Aggregating round {server_round}, phase={self.current_phase}, valid results={len(weights_results)}")
 
         # Aggregate parameters
         if self.current_phase == "MAX" and self.config.get("GRADIENT_ACCUMULATION_POLICY", "AVG") in ["MAX", "MIN", "MEDIAN"]:
             previous_model = self.load_latest_model(server_round=server_round)
-            parameters_aggregated = ndarrays_to_parameters(aggregate_with_policy(self.config, weights_results, previous_model))
+            parameters_aggregated = ndarrays_to_parameters(
+                aggregate_with_policy(self.config, weights_results, previous_model))
         else:
-            parameters_aggregated = ndarrays_to_parameters(aggregate(weights_results))
+            parameters_aggregated = ndarrays_to_parameters(
+                aggregate(weights_results))
         self.round_model = parameters_aggregated
 
         # Aggregate metrics
@@ -280,7 +286,8 @@ class FedCustom(FedAvg):
 
         self.round_log[self.log_data.columns.get_loc("TRAINING_LOSS")] = loss
         self.round_log[self.log_data.columns.get_loc("TRAINING_ACC")] = acc
-        self.round_log[self.log_data.columns.get_loc("Phase")] = self.current_phase
+        self.round_log[self.log_data.columns.get_loc(
+            "Phase")] = self.current_phase
         self.round_log[self.log_data.columns.get_loc("Iter")] = server_round
 
         # Save model and logs
@@ -302,7 +309,6 @@ class FedCustom(FedAvg):
 
         return loss_aggregated, acc_aggregated
 
-
     def configure_evaluate(
             self, server_round: int, parameters: Parameters, client_manager: ClientManager
     ) -> List[Tuple[ClientProxy, EvaluateIns]]:
@@ -311,7 +317,8 @@ class FedCustom(FedAvg):
             return []
 
         # Sample clients
-        sample_size, min_num_clients = self.num_evaluation_clients(client_manager.num_available())
+        sample_size, min_num_clients = self.num_evaluation_clients(
+            client_manager.num_available())
         clients = client_manager.sample(
             num_clients=sample_size, min_num_clients=min_num_clients
         )
@@ -337,11 +344,10 @@ class FedCustom(FedAvg):
                 client_config["UNLEARN_CON"] = "TRUE"
                 if idx in remove_clients:
                     client_config["REMOVE"] = "TURE"
-            fit_configurations.append((client, EvaluateIns(parameters, client_config)))
-
+            fit_configurations.append(
+                (client, EvaluateIns(parameters, client_config)))
 
         return fit_configurations
-
 
     def aggregate_evaluate(
             self,
@@ -350,7 +356,8 @@ class FedCustom(FedAvg):
             failures: List[Union[Tuple[ClientProxy, EvaluateRes], Any]],
     ) -> Tuple[Optional[float], Dict[str, Scalar]]:
         """Aggregate evaluation results."""
-        print(f"Aggregating evaluation from {len(results)} clients, {len(failures)} failures")
+        print(
+            f"Aggregating evaluation from {len(results)} clients, {len(failures)} failures")
         if failures:
             print(f"Failures: {failures}")
 
@@ -384,7 +391,6 @@ class FedCustom(FedAvg):
             for _, res in results if res.metrics["eval_size"] > 0
         ])
 
-
         mia = weighted_loss_avg_custom([
             (res.metrics["forget_size"], res.metrics["mia_score"])
             for _, res in results if res.metrics["forget_size"] > 0
@@ -401,14 +407,19 @@ class FedCustom(FedAvg):
         ]) if any(res.metrics["forget_size"] > 0 for _, res in results) else 0
 
         # Log metrics
-        self.round_log[self.log_data.columns.get_loc("FORGET_LOSS")] = forget_loss
-        self.round_log[self.log_data.columns.get_loc("FORGET_ACC")] = forget_acc
-        self.round_log[self.log_data.columns.get_loc("CONFUSE_ACC")] = confuse_acc
-        self.round_log[self.log_data.columns.get_loc("BACKDOOR_ASR")] = backdoor_asr
+        self.round_log[self.log_data.columns.get_loc(
+            "FORGET_LOSS")] = forget_loss
+        self.round_log[self.log_data.columns.get_loc(
+            "FORGET_ACC")] = forget_acc
+        self.round_log[self.log_data.columns.get_loc(
+            "CONFUSE_ACC")] = confuse_acc
+        self.round_log[self.log_data.columns.get_loc(
+            "BACKDOOR_ASR")] = backdoor_asr
         self.round_log[self.log_data.columns.get_loc("VAL_LOSS")] = val_loss
         self.round_log[self.log_data.columns.get_loc("VAL_ACC")] = val_acc
         self.round_log[self.log_data.columns.get_loc("MIA")] = mia
-        self.round_log[self.log_data.columns.get_loc("Phase")] = self.current_phase
+        self.round_log[self.log_data.columns.get_loc(
+            "Phase")] = self.current_phase
         self.round_log[self.log_data.columns.get_loc("Iter")] = server_round
         self.round_log[self.log_data.columns.get_loc("IC_ERR")] = ic
         self.round_log[self.log_data.columns.get_loc("FGT_ERR")] = fgt
@@ -420,19 +431,21 @@ class FedCustom(FedAvg):
         if val_acc > self.best_acc:
             self.best_acc = val_acc
             print(f"New best accuracy: {val_acc:.4f}")
-            self.save_server_model(self.round_model, server_round, is_best=True)
+            self.save_server_model(
+                self.round_model, server_round, is_best=True)
 
         # Update phase for next round
-        self.current_phase = self.phase_schedule(self.current_phase, server_round)
+        self.current_phase = self.phase_schedule(
+            self.current_phase, server_round)
 
         return val_loss, {"acc": val_acc}
-
 
     def save_round_logs(self) -> None:
         """Save round logs to CSV file."""
         new_df = pd.DataFrame([self.round_log], columns=self.log_data.columns)
         self.log_data = pd.concat([self.log_data, new_df], ignore_index=True)
-        self.log_data.to_csv(os.path.join(custom_config["SAVING_DIR"], "logs.csv"), index=False)
+        self.log_data.to_csv(os.path.join(
+            custom_config["SAVING_DIR"], "logs.csv"), index=False)
         if self.config.get("WANDB_MODE", "ON") == "ON":
             wandb.log(dict(zip(self.log_data.columns, self.round_log)))
 
@@ -453,13 +466,14 @@ class FedCustom(FedAvg):
         num_clients = int(num_available_clients * self.fraction_evaluate)
         return max(num_clients, self.min_evaluate_clients), self.min_available_clients
 
-    def load_latest_model(self, server_round = -1) -> NDArrays:
+    def load_latest_model(self, server_round=-1) -> NDArrays:
         """Load the latest server model."""
         model = get_model(custom_config["MODEL"])
         if server_round == 1:
             checkpoint_path = custom_config["RESUME"]
         else:
-            checkpoint_path = os.path.join(custom_config["SAVING_DIR"], "models_chkpts", "model_latest.pth")
+            checkpoint_path = os.path.join(
+                custom_config["SAVING_DIR"], "models_chkpts", "model_latest.pth")
 
         checkpoint = torch.load(checkpoint_path, map_location='cpu')
         model.load_state_dict(checkpoint["state_dict"], strict=True)
@@ -470,7 +484,8 @@ class FedCustom(FedAvg):
         if params is None:
             return
 
-        print(f"Saving round {server_round} model{' (best)' if is_best else ''}...")
+        print(
+            f"Saving round {server_round} model{' (best)' if is_best else ''}...")
 
         # Convert parameters to model state dict
         model = get_model(custom_config["MODEL"])
@@ -491,7 +506,7 @@ def get_parameters(net) -> List[np.ndarray]:
     """Extract model parameters as NumPy arrays."""
     return [val.cpu().numpy() for _, val in net.state_dict().items()]
 
-import os
+
 def overwite_wandb_config(custom_config):
     """Overwrite wandb config with custom_config values."""
     if wandb.run is not None:
@@ -503,12 +518,12 @@ def overwite_wandb_config(custom_config):
     else:
         print("No active wandb run to overwrite config")
     return custom_config
+
+
 def server_fn(context: Context) -> ServerAppComponents:
-    
+
     global custom_config
     """Server factory function."""
-            
-
 
     # Setup configuration
     custom_config = setup_experiment(os.environ["EXP_ENV_DIR"])
@@ -550,15 +565,15 @@ def server_fn(context: Context) -> ServerAppComponents:
         ),
     )
     print(strategy.lr_scheduler)
-    
+
     config = ServerConfig(num_rounds=num_rounds)
     print("Server configured")
     if custom_config.get("WANDB_MODE", "ON") == "ON":
         print(wandb.config)
     print("server config wandb done")
 
-
     return ServerAppComponents(strategy=strategy, config=config)
+
 
 def create_server_app() -> ServerApp:
     return ServerApp(server_fn=server_fn)

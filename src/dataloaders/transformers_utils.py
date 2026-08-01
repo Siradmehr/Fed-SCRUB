@@ -231,18 +231,33 @@ class BackdoorWrapper(Dataset):
         target_label: int = 0,
         trigger_size: Optional[int] = None,
         trigger_value: Optional[Union[float, Sequence[float]]] = None,
+        exclude_original_target: bool = False,
     ):
         assert isinstance(subset, Subset), "Pass a torch.utils.data.Subset"
         self.subset = subset
         self.target_label = int(target_label)
         self.trigger_size = trigger_size
         self.trigger_value = trigger_value
+        self.source_indices = None
+        if exclude_original_target:
+            self.source_indices = []
+            for idx in range(len(self.subset)):
+                _, original_label = self.subset[idx]
+                if isinstance(original_label, torch.Tensor):
+                    original_label = int(original_label.item())
+                else:
+                    original_label = int(original_label)
+                if original_label != self.target_label:
+                    self.source_indices.append(idx)
 
     def __len__(self):
+        if self.source_indices is not None:
+            return len(self.source_indices)
         return len(self.subset)
 
     def __getitem__(self, idx):
-        x, _ = self.subset[idx]
+        source_idx = self.source_indices[idx] if self.source_indices is not None else idx
+        x, _ = self.subset[source_idx]
         x_bd = _add_square_trigger(x, self.trigger_size, self.trigger_value)
         return x_bd, self.target_label
 
@@ -264,6 +279,7 @@ def backdoor_the_forget_set(
     target_label: int = 0,
     trigger_size: Optional[int] = None,
     trigger_value: Optional[Union[float, Sequence[float]]] = None,
+    exclude_original_target: bool = False,
 ) -> Dataset:
     """
     Return a dataset that serves the same samples as `forget_set` but with a bottom-right square trigger
@@ -274,6 +290,7 @@ def backdoor_the_forget_set(
         target_label=target_label,
         trigger_size=trigger_size,
         trigger_value=trigger_value,
+        exclude_original_target=exclude_original_target,
     )
 #
 # def confuse_the_forget_set(forget_set):

@@ -515,7 +515,9 @@ def \
                 forgetset, trigger_value=trigger_value
             )
             transformed_forget_eval_dataset = backdoor_the_forget_set(
-                original_forget_dataset, trigger_value=trigger_value
+                original_forget_dataset,
+                trigger_value=trigger_value,
+                exclude_original_target=True,
             )
 
 

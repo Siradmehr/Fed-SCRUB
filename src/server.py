@@ -171,8 +171,8 @@ class FedCustom(FedAvg):
         self.log_data = pd.DataFrame(
             columns=[
                 "Phase", "Iter", "LR", "TRAINING_LOSS", "TRAINING_ACC",
-                "FORGET_LOSS", "FORGET_ACC", "CONFUSE_ACC", "BACKDOOR_ASR",
-                "VAL_LOSS", "VAL_ACC", "MIA", "IC_ERR", "FGT_ERR"
+                "GLOBAL_TRAINING_ACC", "FORGET_LOSS", "FORGET_ACC", "CONFUSE_ACC",
+                "BACKDOOR_ASR", "VAL_LOSS", "VAL_ACC", "MIA", "IC_ERR", "FGT_ERR"
             ]
         )
         self.round_log = [0 for i in self.log_data.columns]
@@ -390,6 +390,11 @@ class FedCustom(FedAvg):
             (res.metrics["eval_size"], res.metrics["eval_acc"])
             for _, res in results if res.metrics["eval_size"] > 0
         ])
+        global_training_acc = weighted_loss_avg_custom([
+            (res.metrics["global_training_size"],
+             res.metrics["global_training_acc"])
+            for _, res in results if res.metrics["global_training_size"] > 0
+        ])
 
         mia = weighted_loss_avg_custom([
             (res.metrics["forget_size"], res.metrics["mia_score"])
@@ -415,6 +420,8 @@ class FedCustom(FedAvg):
             "CONFUSE_ACC")] = confuse_acc
         self.round_log[self.log_data.columns.get_loc(
             "BACKDOOR_ASR")] = backdoor_asr
+        self.round_log[self.log_data.columns.get_loc(
+            "GLOBAL_TRAINING_ACC")] = global_training_acc
         self.round_log[self.log_data.columns.get_loc("VAL_LOSS")] = val_loss
         self.round_log[self.log_data.columns.get_loc("VAL_ACC")] = val_acc
         self.round_log[self.log_data.columns.get_loc("MIA")] = mia
@@ -438,7 +445,10 @@ class FedCustom(FedAvg):
         self.current_phase = self.phase_schedule(
             self.current_phase, server_round)
 
-        return val_loss, {"acc": val_acc}
+        return val_loss, {
+            "acc": val_acc,
+            "global_training_acc": global_training_acc,
+        }
 
     def save_round_logs(self) -> None:
         """Save round logs to CSV file."""

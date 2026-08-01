@@ -45,6 +45,9 @@ def make_client(unlearning_case, original_loader, transformed_loader):
     client.original_forget_loader = original_loader
     client.forget_loader = transformed_loader
     client.transformed_forget_eval_loader = transformed_loader
+    client.global_training_eval_loader = make_loader(
+        [[4, 0], [4, 0]], [0, 1]
+    )
     client.set_parameters = lambda _: None
     return client
 
@@ -71,6 +74,8 @@ class ForgetMetricTests(unittest.TestCase):
 
         self.assertEqual(metrics["forget_acc"], 1.0)
         self.assertEqual(metrics["forget_size"], 2)
+        self.assertEqual(metrics["global_training_acc"], 0.5)
+        self.assertEqual(metrics["global_training_size"], 2)
         self.assertEqual(metrics["confuse_acc"], 0.0)
         self.assertEqual(metrics["confuse_size"], 2)
         self.assertEqual(metrics["backdoor_asr"], 0.0)

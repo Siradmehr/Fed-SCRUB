@@ -40,6 +40,7 @@ if __name__ == "__main__":
         testloader,
         original_forget_loader,
         _transformed_forget_eval_loader,
+        _global_training_eval_loader,
     ) = load_datasets_with_forgetting(
         partition_id=partition_id,
         num_partitions=num_partitions,

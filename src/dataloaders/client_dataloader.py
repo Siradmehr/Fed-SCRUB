@@ -353,12 +353,10 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
             download=True,
             transform=_cifar100_train_transform(),
         )
-        evaluation_dataset = datasets.CIFAR100(
-            root=root,
-            train=True,
-            download=True,
-            transform=_cifar100_eval_transform(),
-        )
+        # Share the underlying CIFAR-100 images and labels while keeping an
+        # independent deterministic transform for validation/forget metrics.
+        evaluation_dataset = copy.copy(dataset)
+        evaluation_dataset.transform = _cifar100_eval_transform()
         test_dataset = datasets.CIFAR100(
             root=root,
             train=False,
@@ -422,7 +420,7 @@ def \
         dataset_name: str = "cifar10"
 ) -> Tuple[
     Optional[DataLoader], Optional[DataLoader], DataLoader, DataLoader,
-    Optional[DataLoader], Optional[DataLoader]
+    Optional[DataLoader], Optional[DataLoader], Optional[DataLoader]
 ]:
     """
     Load and partition datasets with forgetting functionality and print class distributions.
@@ -538,6 +536,9 @@ def \
     transformed_forget_eval_loader = DataLoader(
         transformed_forget_eval_dataset, batch_size=forget_batch, shuffle=evaluation_shuffle
     ) if transformed_forget_eval_dataset is not None and len(transformed_forget_eval_dataset) > 0 else None
+    global_training_eval_loader = DataLoader(
+        evaluation_train_data, batch_size=val_batch, shuffle=evaluation_shuffle
+    ) if len(evaluation_train_data) > 0 else None
     valloader = DataLoader(val_data, batch_size=val_batch, shuffle=evaluation_shuffle)
     testloader = DataLoader(test_data, batch_size=test_batch, shuffle=evaluation_shuffle)
 
@@ -558,5 +559,6 @@ def \
         testloader,
         original_forget_loader,
         transformed_forget_eval_loader,
+        global_training_eval_loader,
     )
 

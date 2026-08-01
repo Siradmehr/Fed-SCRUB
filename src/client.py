@@ -294,7 +294,8 @@ class FlowerClient(NumPyClient):
 
     def __init__(self, net: nn.Module, partition_id: int, config_manager: ConfigManager,
                  train_loader, val_loader, forget_loader, test_loader,
-                 original_forget_loader, transformed_forget_eval_loader):
+                 original_forget_loader, transformed_forget_eval_loader,
+                 global_training_eval_loader):
         self.net = net
         self.partition_id = partition_id
         self.config_manager = config_manager
@@ -307,6 +308,7 @@ class FlowerClient(NumPyClient):
         self.test_loader = test_loader
         self.original_forget_loader = original_forget_loader  # Keep original for evaluation
         self.transformed_forget_eval_loader = transformed_forget_eval_loader
+        self.global_training_eval_loader = global_training_eval_loader
 
         # Initialize components
         self.loss_manager = LossManager(config_manager.config)
@@ -544,6 +546,18 @@ class FlowerClient(NumPyClient):
                 self.device
             )
 
+            global_training_acc, global_training_size = 0, 0
+            if (
+                self.global_training_eval_loader
+                and len(self.global_training_eval_loader) > 0
+            ):
+                _, global_training_acc, global_training_size = _eval_mode(
+                    self.loss_manager.criterion_cls,
+                    self.net,
+                    self.global_training_eval_loader,
+                    self.device,
+                )
+
             # Evaluate true-label and transformed versions of the forget data separately.
             forget_loss, forget_acc, forget_size, mia_score = 0, 0, 0, 0
             confuse_acc, confuse_size = 0, 0
@@ -604,6 +618,8 @@ class FlowerClient(NumPyClient):
                 "eval_loss": loss,
                 "eval_acc": accuracy,
                 "eval_size": eval_size,
+                "global_training_acc": global_training_acc,
+                "global_training_size": global_training_size,
                 "forget_loss": forget_loss,
                 "forget_acc": forget_acc,
                 "forget_size": forget_size,
@@ -662,6 +678,7 @@ def client_fn(context: Context) -> Client:
             test_loader,
             original_forget_loader,
             transformed_forget_eval_loader,
+            global_training_eval_loader,
         ) = load_datasets_with_forgetting(
             partition_id,
             num_partitions,
@@ -680,6 +697,7 @@ def client_fn(context: Context) -> Client:
             test_loader,
             original_forget_loader,
             transformed_forget_eval_loader,
+            global_training_eval_loader,
         ).to_client()
 
     except Exception as e:

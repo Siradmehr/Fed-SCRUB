@@ -44,6 +44,7 @@ def make_client(unlearning_case, original_loader, transformed_loader):
     client.val_loader = make_loader([[4, 0], [0, 4]], [0, 1])
     client.original_forget_loader = original_loader
     client.forget_loader = transformed_loader
+    client.transformed_forget_eval_loader = transformed_loader
     client.set_parameters = lambda _: None
     return client
 
@@ -78,7 +79,10 @@ class ForgetMetricTests(unittest.TestCase):
     def test_backdoor_asr_is_separate_from_true_forget_accuracy(self):
         original = make_loader([[4, 0], [0, 4]], [0, 1])
         backdoored = make_loader([[4, 0], [4, 0]], [0, 0])
-        metrics = self.evaluate(make_client("BACKDOOR", original, backdoored))
+        client = make_client("BACKDOOR", original, backdoored)
+        # Training data must not be reused for deterministic metric evaluation.
+        client.forget_loader = make_loader([[0, 4], [0, 4]], [0, 0])
+        metrics = self.evaluate(client)
 
         self.assertEqual(metrics["forget_acc"], 1.0)
         self.assertEqual(metrics["forget_size"], 2)

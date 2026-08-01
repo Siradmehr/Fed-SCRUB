@@ -33,7 +33,14 @@ if __name__ == "__main__":
     forgetting_config = {i: 0.1 for i in range(10)}  # Forget 10% from each class for demonstration
 
     # Load datasets using the imported function
-    retrainloader, forgetloader, valloader, testloader, original_forget_loader = load_datasets_with_forgetting(
+    (
+        retrainloader,
+        forgetloader,
+        valloader,
+        testloader,
+        original_forget_loader,
+        _transformed_forget_eval_loader,
+    ) = load_datasets_with_forgetting(
         partition_id=partition_id,
         num_partitions=num_partitions,
         seed=42,

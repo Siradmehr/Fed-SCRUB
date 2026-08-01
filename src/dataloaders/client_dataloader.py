@@ -32,6 +32,31 @@ from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 
 
+CIFAR100_MEAN = (0.5071, 0.4867, 0.4408)
+CIFAR100_STD = (0.2675, 0.2565, 0.2761)
+CIFAR100_NORMALIZED_WHITE = tuple(
+    (1.0 - mean) / std for mean, std in zip(CIFAR100_MEAN, CIFAR100_STD)
+)
+
+
+def _cifar100_train_transform():
+    """Return the stochastic transform used only for CIFAR-100 optimization."""
+    return transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(p=0.5),
+        transforms.ToTensor(),
+        transforms.Normalize(CIFAR100_MEAN, CIFAR100_STD),
+    ])
+
+
+def _cifar100_eval_transform():
+    """Return the deterministic transform used for CIFAR-100 metrics."""
+    return transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(CIFAR100_MEAN, CIFAR100_STD),
+    ])
+
+
 class Caltech101Wrapper(Dataset):
     def __init__(self, root, train=True, download=False, transform=None, seed=42):
         # Caltech101 expects root to be the parent of 'caltech101' folder
@@ -322,16 +347,35 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
     """
     # Load dataset
     if dataset_name.lower() == "cifar100":
-        dataset = datasets.CIFAR100(root=root, train=True, download=True, transform=transforms.ToTensor())
-        test_dataset = datasets.CIFAR100(root=root, train=False, download=True, transform=transforms.ToTensor())
+        dataset = datasets.CIFAR100(
+            root=root,
+            train=True,
+            download=True,
+            transform=_cifar100_train_transform(),
+        )
+        evaluation_dataset = datasets.CIFAR100(
+            root=root,
+            train=True,
+            download=True,
+            transform=_cifar100_eval_transform(),
+        )
+        test_dataset = datasets.CIFAR100(
+            root=root,
+            train=False,
+            download=True,
+            transform=_cifar100_eval_transform(),
+        )
     elif dataset_name.lower() == "cifar10":
         dataset = datasets.CIFAR10(root=root, train=True, download=True, transform=transforms.ToTensor())
+        evaluation_dataset = dataset
         test_dataset = datasets.CIFAR10(root=root, train=False, download=True, transform=transforms.ToTensor())
     elif dataset_name.lower() == "mnist":
         dataset = datasets.MNIST(root=root, train=True, download=True, transform=transforms.ToTensor())
+        evaluation_dataset = dataset
         test_dataset = datasets.MNIST(root=root, train=False, download=True, transform=transforms.ToTensor())
     elif dataset_name.lower() == "fashionmnist":
         dataset = datasets.FashionMNIST(root=root, train=True, download=True, transform=transforms.ToTensor())
+        evaluation_dataset = dataset
         test_dataset = datasets.FashionMNIST(root=root, train=False, download=True, transform=transforms.ToTensor())
     elif dataset_name.lower() == "caltech101":
         vit_transform = transforms.Compose([
@@ -343,6 +387,7 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
                                  std=[0.229, 0.224, 0.225]),
         ])
         dataset = Caltech101Wrapper(root=root, train=True, download=True, transform=vit_transform, seed=seed)
+        evaluation_dataset = dataset
         test_dataset = Caltech101Wrapper(root=root, train=False, download=True, transform=vit_transform, seed=seed)
     else:
         raise ValueError("Unsupported dataset")
@@ -363,7 +408,8 @@ def configure_balanced_partition(root: str, dataset_name: str, partition_id: int
         trainin_set, full_training_index = _partition_dataset(dataset, num_partitions, partition_id, shuffle)
         test_set, test_index = _partition_dataset(test_dataset, num_partitions, partition_id, shuffle)
 
-    return trainin_set, full_training_index, test_set, test_index
+    evaluation_set = Subset(evaluation_dataset, full_training_index)
+    return trainin_set, evaluation_set, full_training_index, test_set, test_index
 
 
 def \
@@ -374,7 +420,10 @@ def \
         shuffle: bool = True,
         forgetting_config: Dict = {},
         dataset_name: str = "cifar10"
-) -> Tuple[Optional[DataLoader], Optional[DataLoader], DataLoader, DataLoader, DataLoader]:
+) -> Tuple[
+    Optional[DataLoader], Optional[DataLoader], DataLoader, DataLoader,
+    Optional[DataLoader], Optional[DataLoader]
+]:
     """
     Load and partition datasets with forgetting functionality and print class distributions.
 
@@ -386,7 +435,7 @@ def \
     beta = custom_config.get("NON_IID_DP", 10000)  # default > 1000 means IID
     print("DIRICHLET BETA: ", beta)
 
-    partition, full_training_index, test_set, test_index = configure_balanced_partition(
+    partition, evaluation_partition, full_training_index, test_set, test_index = configure_balanced_partition(
         root="./data",
         dataset_name=dataset_name,
         partition_id=partition_id,
@@ -398,7 +447,7 @@ def \
 
     # Group data by class labels
     label_to_indices = defaultdict(list)
-    for idx, item in enumerate(partition):
+    for idx, item in enumerate(evaluation_partition):
         label_to_indices[item[1]].append(idx)
 
     # Split the indices for each class
@@ -417,7 +466,8 @@ def \
 
     # Create Subsets for train, val, and test
     train_data = Subset(partition, train_indices)
-    val_data = Subset(partition, val_indices)
+    evaluation_train_data = Subset(evaluation_partition, train_indices)
+    val_data = Subset(evaluation_partition, val_indices)
     test_data = test_set
 
     # Compute class distributions
@@ -429,7 +479,7 @@ def \
 
 
     class_indices = defaultdict(list)
-    for i, x in enumerate(train_data):
+    for i, x in enumerate(evaluation_train_data):
         class_indices[x[1]].append(i)
 
     forget_indices = []
@@ -447,15 +497,28 @@ def \
     forgetset = Subset(train_data, forget_indices)
     retrainset = Subset(train_data, retrain_indices)
 
-    import copy
     forget_clients = custom_config["CLIENT_ID_TO_FORGET"]
     print(forget_clients)
-    new_forget_dataset = copy.deepcopy(forgetset)
+    original_forget_dataset = Subset(evaluation_train_data, forget_indices)
+    transformed_forget_eval_dataset = None
     if partition_id in forget_clients:
         if custom_config["UNLEARNING_CASE"] == "CONFUSE":
             forgetset = confuse_the_forget_set(forgetset, custom_config["MAP_CONFUSE"])
+            transformed_forget_eval_dataset = confuse_the_forget_set(
+                original_forget_dataset, custom_config["MAP_CONFUSE"]
+            )
         elif custom_config["UNLEARNING_CASE"] == "BACKDOOR":
-            forgetset = backdoor_the_forget_set(forgetset)
+            trigger_value = (
+                CIFAR100_NORMALIZED_WHITE
+                if dataset_name.lower() == "cifar100"
+                else None
+            )
+            forgetset = backdoor_the_forget_set(
+                forgetset, trigger_value=trigger_value
+            )
+            transformed_forget_eval_dataset = backdoor_the_forget_set(
+                original_forget_dataset, trigger_value=trigger_value
+            )
 
 
 
@@ -464,13 +527,19 @@ def \
     forget_batch = custom_config["FORGET_BATCH"]
     val_batch = custom_config["VAL_BATCH"]
     test_batch = custom_config["TEST_BATCH"]
+    evaluation_shuffle = dataset_name.lower() != "cifar100"
 
 
     retrainloader = DataLoader(retrainset, batch_size=retrain_batch, shuffle=True) if len(retrainset) > 0 else None
     forgetloader = DataLoader(forgetset, batch_size=forget_batch, shuffle=True) if len(forgetset) > 0 else None
-    original_forget_loader = DataLoader(new_forget_dataset, batch_size=forget_batch, shuffle=True) if len(new_forget_dataset) > 0 else None
-    valloader = DataLoader(val_data, batch_size=val_batch, shuffle=True)
-    testloader = DataLoader(test_data, batch_size=test_batch, shuffle=True)
+    original_forget_loader = DataLoader(
+        original_forget_dataset, batch_size=forget_batch, shuffle=evaluation_shuffle
+    ) if len(original_forget_dataset) > 0 else None
+    transformed_forget_eval_loader = DataLoader(
+        transformed_forget_eval_dataset, batch_size=forget_batch, shuffle=evaluation_shuffle
+    ) if transformed_forget_eval_dataset is not None and len(transformed_forget_eval_dataset) > 0 else None
+    valloader = DataLoader(val_data, batch_size=val_batch, shuffle=evaluation_shuffle)
+    testloader = DataLoader(test_data, batch_size=test_batch, shuffle=evaluation_shuffle)
 
     np_index_save(full_training_index=full_training_index,
                   training_set=train_indices,
@@ -482,5 +551,12 @@ def \
                   partition_id=partition_id)
 
 
-    return retrainloader, forgetloader, valloader, testloader, original_forget_loader
+    return (
+        retrainloader,
+        forgetloader,
+        valloader,
+        testloader,
+        original_forget_loader,
+        transformed_forget_eval_loader,
+    )
 

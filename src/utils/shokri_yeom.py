@@ -18,7 +18,14 @@ if __name__ == "__main__":
 
     net = custom_config["LOADED_MODEL"]
     forget_set_config = custom_config.get("FORGET_CLASS", {})
-    train_loader, forget_loader, val_loader, test_loader, original_forget_loader = load_datasets_with_forgetting(
+    (
+        train_loader,
+        forget_loader,
+        val_loader,
+        test_loader,
+        original_forget_loader,
+        _transformed_forget_eval_loader,
+    ) = load_datasets_with_forgetting(
         partition_id,
         num_partitions,
         dataset_name=custom_config["DATASET"],
@@ -233,7 +240,14 @@ if __name__ == "__main__":
 
     net = custom_config["LOADED_MODEL"] #TODO  check that we pass it
     forget_set_config = custom_config.get("FORGET_CLASS", {})
-    train_loader, forget_loader, val_loader, test_loader, original_forget_loader = load_datasets_with_forgetting(
+    (
+        train_loader,
+        forget_loader,
+        val_loader,
+        test_loader,
+        original_forget_loader,
+        _transformed_forget_eval_loader,
+    ) = load_datasets_with_forgetting(
         partition_id,
         num_partitions,
         dataset_name=custom_config["DATASET"],

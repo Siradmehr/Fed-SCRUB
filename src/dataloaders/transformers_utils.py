@@ -65,7 +65,7 @@ def apply_transforms(batch):
 
 
 import random
-from typing import Optional
+from typing import Optional, Sequence, Union
 import torch
 from torch.utils.data import Dataset, Subset
 
@@ -89,7 +89,11 @@ def _different_random_label(y: int, num_classes: int, rng: random.Random) -> int
     r = rng.randrange(num_classes - 1)
     return r if r < y else r + 1
 
-def _add_square_trigger(x, trigger_size: Optional[int] = None, trigger_value: Optional[float] = None):
+def _add_square_trigger(
+    x,
+    trigger_size: Optional[int] = None,
+    trigger_value: Optional[Union[float, Sequence[float]]] = None,
+):
     """
     Add a solid square at the bottom-right of image x.
     Supports torch tensors [C,H,W] or [H,W], and PIL images.
@@ -105,6 +109,12 @@ def _add_square_trigger(x, trigger_size: Optional[int] = None, trigger_value: Op
             if v is None:
                 v = 255 if x.dtype == torch.uint8 else 1.0
             x2 = x.clone()
+            if isinstance(v, (list, tuple)):
+                if len(v) != C:
+                    raise ValueError(
+                        f"Expected {C} channel trigger values, received {len(v)}"
+                    )
+                v = torch.as_tensor(v, dtype=x.dtype, device=x.device).view(C, 1, 1)
             x2[..., H - ts:H, W - ts:W] = v
             return x2
         elif x.dim() == 2:
@@ -220,7 +230,7 @@ class BackdoorWrapper(Dataset):
         subset: Subset,
         target_label: int = 0,
         trigger_size: Optional[int] = None,
-        trigger_value: Optional[float] = None,
+        trigger_value: Optional[Union[float, Sequence[float]]] = None,
     ):
         assert isinstance(subset, Subset), "Pass a torch.utils.data.Subset"
         self.subset = subset
@@ -253,7 +263,7 @@ def backdoor_the_forget_set(
     forget_set: Subset,
     target_label: int = 0,
     trigger_size: Optional[int] = None,
-    trigger_value: Optional[float] = None,
+    trigger_value: Optional[Union[float, Sequence[float]]] = None,
 ) -> Dataset:
     """
     Return a dataset that serves the same samples as `forget_set` but with a bottom-right square trigger

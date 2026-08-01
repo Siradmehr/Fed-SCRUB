@@ -293,7 +293,8 @@ class FlowerClient(NumPyClient):
     """Improved Flower client for federated unlearning"""
 
     def __init__(self, net: nn.Module, partition_id: int, config_manager: ConfigManager,
-                 train_loader, val_loader, forget_loader, test_loader, original_forget_loader):
+                 train_loader, val_loader, forget_loader, test_loader,
+                 original_forget_loader, transformed_forget_eval_loader):
         self.net = net
         self.partition_id = partition_id
         self.config_manager = config_manager
@@ -305,6 +306,7 @@ class FlowerClient(NumPyClient):
         self.forget_loader = forget_loader
         self.test_loader = test_loader
         self.original_forget_loader = original_forget_loader  # Keep original for evaluation
+        self.transformed_forget_eval_loader = transformed_forget_eval_loader
 
         # Initialize components
         self.loss_manager = LossManager(config_manager.config)
@@ -571,11 +573,14 @@ class FlowerClient(NumPyClient):
                 unlearning_case = str(
                     self.config_manager.config.get("UNLEARNING_CASE", "NONE")
                 ).upper()
-                if self.forget_loader and len(self.forget_loader) > 0:
+                if (
+                    self.transformed_forget_eval_loader
+                    and len(self.transformed_forget_eval_loader) > 0
+                ):
                     _, transformed_acc, transformed_size = _eval_mode(
                         self.loss_manager.criterion_cls,
                         self.net,
-                        self.forget_loader,
+                        self.transformed_forget_eval_loader,
                         self.device
                     )
                     if unlearning_case == "CONFUSE":
@@ -650,7 +655,14 @@ def client_fn(context: Context) -> Client:
         forget_set_config.update(custom_config.get("FORGET_CLASS", {}))
 
         # Load datasets
-        train_loader, forget_loader, val_loader, test_loader, original_forget_loader = load_datasets_with_forgetting(
+        (
+            train_loader,
+            forget_loader,
+            val_loader,
+            test_loader,
+            original_forget_loader,
+            transformed_forget_eval_loader,
+        ) = load_datasets_with_forgetting(
             partition_id,
             num_partitions,
             dataset_name=custom_config["DATASET"],
@@ -666,7 +678,8 @@ def client_fn(context: Context) -> Client:
             val_loader,
             forget_loader,
             test_loader,
-            original_forget_loader
+            original_forget_loader,
+            transformed_forget_eval_loader,
         ).to_client()
 
     except Exception as e:

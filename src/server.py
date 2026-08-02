@@ -243,8 +243,8 @@ class FedCustom(FedAvg):
         }
 
         # Special case: stay in MIN phase if we've reached LAST_MAX_STEPS
-        if custom_config["LAST_MAX_STEPS"] <= round_num and phase == "MIN":
-            return "MIN"
+        if custom_config["LAST_MAX_STEPS"] <= round_num and phase == "MIN" or phase == "LEARN":
+            return "LEARN"
 
         return phase_transitions.get(phase)
 

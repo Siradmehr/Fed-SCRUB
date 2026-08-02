@@ -199,9 +199,8 @@ class FedCustom(FedAvg):
         print(f"{len(clients)} clients selected for training")
         self.round_log = [0 for i in self.log_data.columns]
 
-        self.lr = self.lr_scheduler.current_lr
+        self.lr = self.lr_scheduler.get_learning_rate_for_round(server_round)
         self.round_log[self.log_data.columns.get_loc("LR")] = self.lr
-        self.lr_scheduler.update_after_round()
 
         # Create base configuration
         standard_config = {
@@ -553,6 +552,10 @@ def server_fn(context: Context) -> ServerAppComponents:
     num_rounds = int(custom_config.get("NUM_ROUNDS"))
     min_clients = int(custom_config.get("MIN_CLIENTS"))
     starting_phase = custom_config.get("STARTING_PHASE")
+    lr_rounds = custom_config.get("LR_ROUND", [])
+    use_milestone_then_cosine = (
+        str(starting_phase).upper() == "MAX" and bool(lr_rounds)
+    )
 
     # Get initial model parameters
     ndarrays = get_parameters(custom_config["LOADED_MODEL"])
@@ -572,6 +575,15 @@ def server_fn(context: Context) -> ServerAppComponents:
         scheduler=FederatedScheduler(
             initial_lr=float(custom_config["LR"]),
             total_rounds=num_rounds,
+            scheduler_type=(
+                "milestone_then_cosine"
+                if use_milestone_then_cosine
+                else "cosine"
+            ),
+            scheduler_params={
+                "milestones": lr_rounds,
+                "gamma": 0.1,
+            } if use_milestone_then_cosine else None,
         ),
     )
     print(strategy.lr_scheduler)

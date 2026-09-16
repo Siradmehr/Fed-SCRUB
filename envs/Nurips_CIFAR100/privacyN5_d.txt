@@ -1,11 +1,11 @@
-envs/Nurips_CIFAR100/data_level/backdoor/Halimi/N_5/6
-envs/Nurips_CIFAR100/data_level/backdoor/Halimi/N_5/10
+envs/Nurips_CIFAR100/data_level/privacy/Halimi/N_5/6
+envs/Nurips_CIFAR100/data_level/privacy/Halimi/N_5/10
 
-envs/Nurips_CIFAR100/data_level/backdoor/NoT/N_5/6
-envs/Nurips_CIFAR100/data_level/backdoor/NoT/N_5/10
+envs/Nurips_CIFAR100/data_level/privacy/NoT/N_5/6
+envs/Nurips_CIFAR100/data_level/privacy/NoT/N_5/10
 
-envs/Nurips_CIFAR100/data_level/backdoor/unlearn/JS/N_5/6
-envs/Nurips_CIFAR100/data_level/backdoor/unlearn/JS/N_5/10
+envs/Nurips_CIFAR100/data_level/privacy/unlearn/JS/N_5/6
+envs/Nurips_CIFAR100/data_level/privacy/unlearn/JS/N_5/10
 
-envs/Nurips_CIFAR100/data_level/backdoor/unlearn/N_5/6
-envs/Nurips_CIFAR100/data_level/backdoor/unlearn/N_5/10
+envs/Nurips_CIFAR100/data_level/privacy/unlearn/N_5/6
+envs/Nurips_CIFAR100/data_level/privacy/unlearn/N_5/10

@@ -967,11 +967,14 @@ def _loss_attack_metrics(model_frame: pd.DataFrame) -> dict[str, Any]:
     )
     auc = float(roc_auc_score(labels, scores))
     fpr, tpr, _ = roc_curve(labels, scores, drop_intermediate=False)
-    advantage = float(np.max(np.abs(tpr - fpr)))
+    tpr_minus_fpr = tpr - fpr
+    advantage = float(np.max(tpr_minus_fpr))
+    absolute_advantage = float(np.max(np.abs(tpr_minus_fpr)))
 
     metrics: dict[str, Any] = {
         "forget_vs_nonmember_auc": auc,
         "attack_advantage": advantage,
+        "attack_advantage_absolute": absolute_advantage,
         "tpr_at_1pct_fpr": _tpr_at_fpr(fpr, tpr, 0.01),
         "tpr_at_0_1pct_fpr": None,
         "tpr_at_0_1pct_fpr_omission_reason": None,
@@ -1095,6 +1098,9 @@ def _summary_table(
                     "forget_vs_nonmember_auc"
                 ],
                 "attack_advantage": metrics["loss_attack"]["attack_advantage"],
+                "attack_advantage_absolute": metrics["loss_attack"][
+                    "attack_advantage_absolute"
+                ],
                 "tpr_at_1pct_fpr": metrics["loss_attack"]["tpr_at_1pct_fpr"],
                 "tpr_at_0_1pct_fpr": metrics["loss_attack"]["tpr_at_0_1pct_fpr"],
                 "forget_accuracy_pct": metrics["splits"][SPLIT_FORGET]["accuracy_pct"],

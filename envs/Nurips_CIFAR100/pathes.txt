@@ -1,5 +1,6 @@
-echo "Server current time: $(date '+%Y-%m-%d %H:%M:%S %Z')" && find ./checkpoints/PRETRAIN/ResNet18/cifar100/   -type f   -name "*model_best.pth"   -printf '%T@ | %TY-%Tm-%Td %TH:%TM:%TS | %p\n'   | sort -nr   | cut -d'|' -f2-
-Server current time: 2026-09-13 09:33:30 BST
+ 2026-09-18 19:52:24.3209660640 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0]/[0]/PRIVACY/0.66/1/2_17/models_chkpts/model_best.pth
+ 2026-09-18 01:47:34.5539013020 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0]/[0]/CONFUSE/0.66/1/2_17/models_chkpts/model_best.pth
+ 2026-09-17 23:53:19.2477891600 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0]/[0]/BACKDOOR/0.66/1/2_17/models_chkpts/model_best.pth
  2026-08-10 03:55:44.2515955890 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]/[]/PRIVACY/0.1/111/15217_17/models_chkpts/model_best.pth
  2026-08-10 03:35:25.1326271010 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]/[]/PRIVACY/0.06/111/15217_17/models_chkpts/model_best.pth
  2026-08-09 23:49:42.9529771420 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]/[]/CONFUSE/0.1/111/15217_17/models_chkpts/model_best.pth
@@ -10,11 +11,8 @@ Server current time: 2026-09-13 09:33:30 BST
  2026-08-09 22:25:54.3111071230 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]/[]/BACKDOOR/0.02/111/15217_17/models_chkpts/model_best.pth
  2026-08-09 22:24:56.1801086250 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]/[]/CONFUSE/0.02/111/152121_17/models_chkpts/model_best.pth
  2026-08-09 21:29:33.2661945170 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]/[]/BACKDOOR/0.1/111/15217_17/models_chkpts/model_best.pth
- 2026-08-09 18:42:47.1534531560 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0]/[0]/CONFUSE/0.66/1/2_17/models_chkpts/model_best.pth
  2026-08-09 18:05:40.9685106990 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0, 1, 2, 3, 4]/[]/CONFUSE/0.1/111/15217_17/models_chkpts/model_best.pth
  2026-08-09 17:55:53.2515258900 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0, 1, 2, 3, 4]/[]/PRIVACY/0.06/111/15217_17/models_chkpts/model_best.pth
- 2026-08-09 17:53:56.5845289060 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0]/[0]/PRIVACY/0.66/1/2_17/models_chkpts/model_best.pth
- 2026-08-09 17:53:16.6785299370 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0]/[0]/BACKDOOR/0.66/1/2_17/models_chkpts/model_best.pth
  2026-08-09 16:55:25.4066196630 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0, 1, 2, 3, 4]/[]/PRIVACY/0.1/111/15217_17/models_chkpts/model_best.pth
  2026-08-09 16:23:57.7706684550 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0, 1, 2, 3, 4]/[]/BACKDOOR/0.06/111/15217_17/models_chkpts/model_best.pth
  2026-08-09 15:17:07.7117721080 | ./checkpoints/PRETRAIN/ResNet18/cifar100/KL/KL/KL/[0, 1, 2, 3, 4]/[]/BACKDOOR/0.1/111/15217_17/models_chkpts/model_best.pth

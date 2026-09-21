@@ -1,11 +1,15 @@
+envs/Nurips_CIFAR100/data_level/backdoor/Halimi/N_10/2
 envs/Nurips_CIFAR100/data_level/backdoor/Halimi/N_10/6
 envs/Nurips_CIFAR100/data_level/backdoor/Halimi/N_10/10
 
+envs/Nurips_CIFAR100/data_level/backdoor/NoT/N_10/2
 envs/Nurips_CIFAR100/data_level/backdoor/NoT/N_10/6
 envs/Nurips_CIFAR100/data_level/backdoor/NoT/N_10/10
 
+envs/Nurips_CIFAR100/data_level/backdoor/unlearn/JS/N_10/2
 envs/Nurips_CIFAR100/data_level/backdoor/unlearn/JS/N_10/6
 envs/Nurips_CIFAR100/data_level/backdoor/unlearn/JS/N_10/10
 
+envs/Nurips_CIFAR100/data_level/backdoor/unlearn/N_10/2
 envs/Nurips_CIFAR100/data_level/backdoor/unlearn/N_10/6
 envs/Nurips_CIFAR100/data_level/backdoor/unlearn/N_10/10

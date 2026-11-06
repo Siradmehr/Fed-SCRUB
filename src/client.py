@@ -420,10 +420,12 @@ class FlowerClient(NumPyClient):
         elif training_config.phase == TrainingPhase.MIN and not training_config.remove:
             return self._handle_min_phase(training_config, optimizer)
         else:
+            # Client does not participate in this phase: report 0 samples so the
+            # server drops its result from the weighted average (Algorithm 1).
             return {
                 "loss": 0,
                 "accuracy": 0,
-            }, len(self.train_loader.dataset)
+            }, 0
 
     def _handle_pretrain_phase(self, config: TrainingConfig, optimizer) -> Tuple[dict, int]:
         print("Handle PRETRAIN phase")

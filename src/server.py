@@ -213,6 +213,7 @@ class FedCustom(FedAvg):
             "TEACHER": custom_config["TEACHER"],
             "REMOVE": "FALSE"
         }
+        standard_config.update(self.loss_weights(self.current_phase))
 
         # Create client-specific configurations
         fit_configurations = []
@@ -230,20 +231,45 @@ class FedCustom(FedAvg):
 
         return fit_configurations
 
+    @staticmethod
+    def loss_weights(phase: str) -> Dict[str, float]:
+        """Loss weights sent to the clients: gamma * CE + alpha * divergence.
+
+        MAX/MIN rounds use ALPHA and GAMMA. POST rounds use POST_ALPHA and
+        POST_GAMMA, falling back to ALPHA and GAMMA when they are not set.
+        A key that is not set anywhere is not sent, so the client default applies.
+        """
+        weights = {}
+        for name in ("ALPHA", "GAMMA"):
+            value = custom_config.get(name)
+            if phase == "POST" and custom_config.get(f"POST_{name}") not in (None, ""):
+                value = custom_config[f"POST_{name}"]
+            if value not in (None, ""):
+                weights[name] = float(value)
+        return weights
+
     def phase_schedule(self, phase: str, round_num: int) -> str:
         """Determine the next phase based on current phase and round number."""
         phase_transitions = {
             "NoT": "NoT_MIN",
             "NoT_MIN": "NoT_MIN",
             "LEARN": "LEARN",
+            "POST": "POST",
             "MAX": "MIN",
             "MIN": "MAX",
             "EXACT": "EXACT",
             "PRETRAIN": "PRETRAIN"
         }
 
-        # Special case: stay in MIN phase if we've reached LAST_MAX_STEPS
-        if custom_config["LAST_MAX_STEPS"] <= round_num and phase == "MIN" or phase == "LEARN":
+        # After LAST_MAX_STEPS the MAX/MIN cycles stop and post-training starts.
+        # POST_PHASE=LEARN (default): CE only on the retain data, as before.
+        # POST_PHASE=POST: the MIN procedure with POST_ALPHA / POST_GAMMA.
+        post_phase = str(custom_config.get("POST_PHASE") or "LEARN").strip().upper()
+        if post_phase not in ("LEARN", "POST"):
+            raise ValueError(f"POST_PHASE must be LEARN or POST, got {post_phase}")
+        if custom_config["LAST_MAX_STEPS"] <= round_num and phase == "MIN":
+            return post_phase
+        if phase == "LEARN":
             return "LEARN"
 
         return phase_transitions.get(phase)

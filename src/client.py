@@ -31,6 +31,8 @@ class TrainingPhase(Enum):
     PRETRAIN = "PRETRAIN"
     Not = "NoT"
     NoT_MIN = "NoT_MIN"
+    # Post-training: runs the MIN procedure with the loss weights sent by the server.
+    POST = "POST"
 
 @dataclass
 class TrainingConfig:
@@ -406,7 +408,7 @@ class FlowerClient(NumPyClient):
                 "accuracy": 0,
             }, len(self.train_loader.dataset)
 
-        if training_config.phase == TrainingPhase.NoT_MIN:
+        if training_config.phase in (TrainingPhase.NoT_MIN, TrainingPhase.POST):
             training_config.phase = TrainingPhase.MIN
 
         # Training logic based on phase

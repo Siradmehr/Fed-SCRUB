@@ -56,7 +56,7 @@ ID_PREFIX = "9119"  # CONFIG_ID = ID_PREFIX + dataset digit + 3-digit counter
 # MAX/MIN cycles), the number of rounds the reference run may have used (others are set to B).
 DATASETS = {
     "cifar10": dict(name="CIFAR-10", model="ResNet18_small", B=20, L=10, ref_rounds=(20,),
-                    digit="0", out=OUT, ref_file=OUT / "reference_configs.json", path_prefix="envs/iclr_rebutal"),
+                    digit="0", r_lr="0.001", out=OUT, ref_file=OUT / "reference_configs.json", path_prefix="envs/iclr_rebutal"),
     "cifar100": dict(name="CIFAR-100", model="ResNet18", B=30, L=2, ref_rounds=(30, 50),
                      digit="1", out=OUT / "cifar100", ref_file=OUT / "reference_configs_cifar100.json",
                      path_prefix="envs/iclr_rebutal/cifar100"),
@@ -233,7 +233,7 @@ ROWS = {
         train={"LR": "@pre:LR", "RETRAIN_BATCH": "@pre:RETRAIN_BATCH"},
         what="Federated training from random initialization on the retained data only "
              "(forget data and, at client level, the removed client are excluded). "
-             "Rounds, local epochs, learning rate and batch size are those of the pretraining run of the same setting.",
+             "Rounds, local epochs and batch size are those of the pretraining run of the same setting. CIFAR-10 uses LR 0.001 (the pretraining LR of 0.5 is too high for Adam).",
         read="This is the reference, not an ablation. Report every other row's gap to it "
              "(accuracy, ASR / confused accuracy, MIA). For MIA the target is this model's own MIA, not 50%.",
         notes="Does not use the pretrained model, so no RESUME. Needs ~the same time as pretraining. "
@@ -391,6 +391,8 @@ def build_row(row, spec, ds, next_id, used_ids, manifest, refs) -> int:
             base_env, base_train = split_config(ref)
             env_over = from_pretrain(spec["env"], entry["pretrain_config"])
             train_over = from_pretrain(spec["train"], entry["pretrain_config"])
+            if row == "R" and ds.get("r_lr"):  # the pretraining LR (0.5 with Adam) is too high for a retrain
+                train_over["LR"] = ds["r_lr"]
             for div in (spec["div"] or (None,)):
                 cid = f"{ID_PREFIX}{ds['digit']}{next_id[0]:03d}"
                 next_id[0] += 1

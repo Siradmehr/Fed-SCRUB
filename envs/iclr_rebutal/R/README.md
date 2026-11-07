@@ -6,7 +6,7 @@
 
 ## What runs
 
-Federated training from random initialization on the retained data only (forget data and, at client level, the removed client are excluded). Rounds, local epochs, learning rate and batch size are those of the pretraining run of the same setting.
+Federated training from random initialization on the retained data only (forget data and, at client level, the removed client are excluded). Rounds, local epochs and batch size are those of the pretraining run of the same setting. CIFAR-10 uses LR 0.001 (the pretraining LR of 0.5 is too high for Adam).
 
 ## Settings that differ from the base unlearning env
 

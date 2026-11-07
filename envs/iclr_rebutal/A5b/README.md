@@ -1,4 +1,4 @@
-# A5b: No post-training, same budget
+# A5b: No post-training, same budget (CIFAR-10)
 
 **Question.** Is the gain from post-training only that it trains for more rounds?
 
@@ -18,9 +18,10 @@ MAX/MIN cycles for all 20 rounds (T=10), no post-training. Same total budget as 
 | `GAMMA` | `1.0` |
 | `LOSSDIV / LOSSKD` | `KL or JS` |
 
-Base (from the paper's CIFAR-10 envs): `STARTING_PHASE="MAX"`, `TEACHER="INIT"`, `LOCAL_EPOCHS=10`,
-`MIN_EPOCHS=1`, `MAX_EPOCHS=1`, `NUM_ROUNDS=20`, `LAST_MAX_STEPS=10`, `SEED=17`, `ALPHA=0.5`, `GAMMA=1.0`.
-`RESUME` points to the pretrained checkpoint of the same scenario (model_latest.pth).
+Base: the config of the paper's unlearning run of the same setting (`../reference_configs.json`):
+`STARTING_PHASE="MAX"`, `TEACHER="INIT"`, `NUM_ROUNDS=20`, `LAST_MAX_STEPS=10`
+(10 rounds of MAX/MIN cycles, then 10 post-training rounds), `ALPHA=0.5`, `GAMMA=1.0`.
+`RESUME` is the pretrained checkpoint that run started from.
 Divergence variants: KL and JS.
 
 ## How to read it
@@ -43,5 +44,5 @@ export EXP_ENV_DIR=envs/iclr_rebutal/A5b/data_level/backdoor/N_5/2/KL
 python -m simulate
 ```
 
-Every leaf has its own `CONFIG_ID` (see `../manifest.csv`) and `CONFIG_NUMBER=1`. None of the ids was used by an
-earlier env, so runs never overwrite earlier checkpoints.
+Every leaf has its own `CONFIG_ID` (prefix 9119, see `manifest.csv`) and `CONFIG_NUMBER=1`. None of the ids was
+used by an earlier run, so runs never overwrite earlier checkpoints. Order of the runs: `../run_lists/A5b_cifar10.txt`.

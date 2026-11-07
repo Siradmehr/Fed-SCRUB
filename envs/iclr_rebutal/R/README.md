@@ -1,4 +1,4 @@
-# R: Retrain reference (exact retraining)
+# R: Retrain reference (exact retraining) (CIFAR-10)
 
 **Question.** How far is each method from retraining on the retained data from scratch?
 
@@ -6,7 +6,7 @@
 
 ## What runs
 
-Federated training from random initialization on the retained data only (forget data and, at client level, the removed client are excluded). 200 rounds x 10 local epochs, the same recipe as the pretraining.
+Federated training from random initialization on the retained data only (forget data and, at client level, the removed client are excluded). Rounds, local epochs, learning rate and batch size are those of the pretraining run of the same setting.
 
 ## Settings that differ from the base unlearning env
 
@@ -15,12 +15,16 @@ Federated training from random initialization on the retained data only (forget 
 | `STARTING_PHASE` | `"EXACT"` |
 | `RESUME` | `` |
 | `TEACHER` | `"NONE"` |
-| `NUM_ROUNDS` | `200` |
+| `NUM_ROUNDS` | `(as in the pretraining run)` |
+| `LOCAL_EPOCHS` | `(as in the pretraining run)` |
 | `LAST_MAX_STEPS` | `0` |
+| `LR` | `(as in the pretraining run)` |
+| `RETRAIN_BATCH` | `(as in the pretraining run)` |
 
-Base (from the paper's CIFAR-10 envs): `STARTING_PHASE="MAX"`, `TEACHER="INIT"`, `LOCAL_EPOCHS=10`,
-`MIN_EPOCHS=1`, `MAX_EPOCHS=1`, `NUM_ROUNDS=20`, `LAST_MAX_STEPS=10`, `SEED=17`, `ALPHA=0.5`, `GAMMA=1.0`.
-`RESUME` points to the pretrained checkpoint of the same scenario (model_latest.pth).
+Base: the config of the paper's unlearning run of the same setting (`../reference_configs.json`):
+`STARTING_PHASE="MAX"`, `TEACHER="INIT"`, `NUM_ROUNDS=20`, `LAST_MAX_STEPS=10`
+(10 rounds of MAX/MIN cycles, then 10 post-training rounds), `ALPHA=0.5`, `GAMMA=1.0`.
+`RESUME` is the pretrained checkpoint that run started from.
 Divergence variants: not applicable.
 
 ## How to read it
@@ -43,5 +47,5 @@ export EXP_ENV_DIR=envs/iclr_rebutal/R/data_level/backdoor/N_5/2
 python -m simulate
 ```
 
-Every leaf has its own `CONFIG_ID` (see `../manifest.csv`) and `CONFIG_NUMBER=1`. None of the ids was used by an
-earlier env, so runs never overwrite earlier checkpoints.
+Every leaf has its own `CONFIG_ID` (prefix 9119, see `manifest.csv`) and `CONFIG_NUMBER=1`. None of the ids was
+used by an earlier run, so runs never overwrite earlier checkpoints. Order of the runs: `../run_lists/R_cifar10.txt`.

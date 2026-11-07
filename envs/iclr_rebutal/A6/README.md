@@ -1,4 +1,4 @@
-# A6: Max-only cycles, then post-training
+# A6: Max-only cycles, then post-training (CIFAR-10)
 
 **Question.** Does the alternation (MAX then MIN) matter, or is MAX followed by recovery enough?
 
@@ -19,9 +19,10 @@ MIN rounds are made inert with alpha=gamma=0 (zero loss, Adam takes no step, cli
 | `POST_GAMMA` | `1.0` |
 | `LOSSDIV / LOSSKD` | `KL or JS` |
 
-Base (from the paper's CIFAR-10 envs): `STARTING_PHASE="MAX"`, `TEACHER="INIT"`, `LOCAL_EPOCHS=10`,
-`MIN_EPOCHS=1`, `MAX_EPOCHS=1`, `NUM_ROUNDS=20`, `LAST_MAX_STEPS=10`, `SEED=17`, `ALPHA=0.5`, `GAMMA=1.0`.
-`RESUME` points to the pretrained checkpoint of the same scenario (model_latest.pth).
+Base: the config of the paper's unlearning run of the same setting (`../reference_configs.json`):
+`STARTING_PHASE="MAX"`, `TEACHER="INIT"`, `NUM_ROUNDS=20`, `LAST_MAX_STEPS=10`
+(10 rounds of MAX/MIN cycles, then 10 post-training rounds), `ALPHA=0.5`, `GAMMA=1.0`.
+`RESUME` is the pretrained checkpoint that run started from.
 Divergence variants: KL and JS.
 
 ## How to read it
@@ -44,5 +45,5 @@ export EXP_ENV_DIR=envs/iclr_rebutal/A6/data_level/backdoor/N_5/2/KL
 python -m simulate
 ```
 
-Every leaf has its own `CONFIG_ID` (see `../manifest.csv`) and `CONFIG_NUMBER=1`. None of the ids was used by an
-earlier env, so runs never overwrite earlier checkpoints.
+Every leaf has its own `CONFIG_ID` (prefix 9119, see `manifest.csv`) and `CONFIG_NUMBER=1`. None of the ids was
+used by an earlier run, so runs never overwrite earlier checkpoints. Order of the runs: `../run_lists/A6_cifar10.txt`.

@@ -11,7 +11,7 @@ run's config as its own column) and <out>.json (the same plus the config as a
 nested object). A run is any folder holding a
 custom_config.json, which the server writes at start-up.
 
-If envs/iclr_rebutal/manifest.csv exists, runs created from these rebuttal envs
+If envs/iclr_rebutal/manifest.csv (and cifar100/manifest.csv) exist, runs created from these rebuttal envs
 are matched by CONFIG_ID and get their row (A0, A3, ...), level, scenario, etc.
 """
 import argparse
@@ -24,11 +24,13 @@ HERE = Path(__file__).resolve().parent
 
 
 def load_manifest() -> dict:
-    f = HERE / "manifest.csv"
-    if not f.exists():
-        return {}
-    with open(f, encoding="utf-8", newline="") as fh:
-        return {r["config_id"]: r for r in csv.DictReader(fh)}
+    """CONFIG_ID -> manifest row, for the CIFAR-10 and CIFAR-100 rebuttal envs."""
+    out = {}
+    for f in (HERE / "manifest.csv", HERE / "cifar100" / "manifest.csv"):
+        if f.exists():
+            with open(f, encoding="utf-8", newline="") as fh:
+                out.update({r["config_id"]: r for r in csv.DictReader(fh)})
+    return out
 
 
 def first_value(d):

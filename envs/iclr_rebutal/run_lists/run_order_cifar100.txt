@@ -1,11 +1,8 @@
 # CIFAR-100: all envs in the order we should run them.
 # Lines starting with # are comments (skip them when looping).
+# Row R (retrain) is not listed here, see R_cifar100.txt.
 
-# --- 1. core ablation, KL, backdoor + confuse (5 clients: data 2%, client level): 32 runs ---
-envs/iclr_rebutal/cifar100/R/data_level/backdoor/N_5/2
-envs/iclr_rebutal/cifar100/R/data_level/confuse/N_5/2
-envs/iclr_rebutal/cifar100/R/client_level/backdoor/N_5
-envs/iclr_rebutal/cifar100/R/client_level/confuse/N_5
+# --- 1. core ablation, KL, backdoor + confuse (5 clients: data 2%, client level): 28 runs ---
 envs/iclr_rebutal/cifar100/A7/data_level/backdoor/N_5/2/KL
 envs/iclr_rebutal/cifar100/A7/data_level/confuse/N_5/2/KL
 envs/iclr_rebutal/cifar100/A7/client_level/backdoor/N_5/KL
@@ -57,9 +54,7 @@ envs/iclr_rebutal/cifar100/A5/data_level/confuse/N_5/2/JS
 envs/iclr_rebutal/cifar100/A5/client_level/backdoor/N_5/JS
 envs/iclr_rebutal/cifar100/A5/client_level/confuse/N_5/JS
 
-# --- 3. privacy on the same settings: 10 runs ---
-envs/iclr_rebutal/cifar100/R/data_level/privacy/N_5/2
-envs/iclr_rebutal/cifar100/R/client_level/privacy/N_5
+# --- 3. privacy on the same settings: 8 runs ---
 envs/iclr_rebutal/cifar100/A7/data_level/privacy/N_5/2/KL
 envs/iclr_rebutal/cifar100/A7/client_level/privacy/N_5/KL
 envs/iclr_rebutal/cifar100/A0/data_level/privacy/N_5/2/KL
@@ -129,7 +124,7 @@ envs/iclr_rebutal/cifar100/A8/client_level/confuse/N_5/JS
 envs/iclr_rebutal/cifar100/A8/data_level/privacy/N_5/2/JS
 envs/iclr_rebutal/cifar100/A8/client_level/privacy/N_5/JS
 
-# --- 7. everything else (other settings, by setting group then row): 388 runs ---
+# --- 7. everything else (other settings, by setting group then row): 370 runs ---
 envs/iclr_rebutal/cifar100/A0/data_level/privacy/N_5/2/JS
 envs/iclr_rebutal/cifar100/A0/client_level/privacy/N_5/JS
 envs/iclr_rebutal/cifar100/A3/data_level/privacy/N_5/2/JS
@@ -140,12 +135,6 @@ envs/iclr_rebutal/cifar100/A5/data_level/privacy/N_5/2/JS
 envs/iclr_rebutal/cifar100/A5/client_level/privacy/N_5/JS
 envs/iclr_rebutal/cifar100/A7/data_level/privacy/N_5/2/JS
 envs/iclr_rebutal/cifar100/A7/client_level/privacy/N_5/JS
-envs/iclr_rebutal/cifar100/R/data_level/backdoor/N_5/6
-envs/iclr_rebutal/cifar100/R/data_level/backdoor/N_5/10
-envs/iclr_rebutal/cifar100/R/data_level/confuse/N_5/6
-envs/iclr_rebutal/cifar100/R/data_level/confuse/N_5/10
-envs/iclr_rebutal/cifar100/R/data_level/privacy/N_5/6
-envs/iclr_rebutal/cifar100/R/data_level/privacy/N_5/10
 envs/iclr_rebutal/cifar100/A0/data_level/backdoor/N_5/6/KL
 envs/iclr_rebutal/cifar100/A0/data_level/backdoor/N_5/10/KL
 envs/iclr_rebutal/cifar100/A0/data_level/confuse/N_5/6/KL
@@ -266,18 +255,6 @@ envs/iclr_rebutal/cifar100/A8/data_level/confuse/N_5/6/JS
 envs/iclr_rebutal/cifar100/A8/data_level/confuse/N_5/10/JS
 envs/iclr_rebutal/cifar100/A8/data_level/privacy/N_5/6/JS
 envs/iclr_rebutal/cifar100/A8/data_level/privacy/N_5/10/JS
-envs/iclr_rebutal/cifar100/R/data_level/backdoor/N_10/2
-envs/iclr_rebutal/cifar100/R/data_level/backdoor/N_10/6
-envs/iclr_rebutal/cifar100/R/data_level/backdoor/N_10/10
-envs/iclr_rebutal/cifar100/R/data_level/confuse/N_10/2
-envs/iclr_rebutal/cifar100/R/data_level/confuse/N_10/6
-envs/iclr_rebutal/cifar100/R/data_level/confuse/N_10/10
-envs/iclr_rebutal/cifar100/R/data_level/privacy/N_10/2
-envs/iclr_rebutal/cifar100/R/data_level/privacy/N_10/6
-envs/iclr_rebutal/cifar100/R/data_level/privacy/N_10/10
-envs/iclr_rebutal/cifar100/R/client_level/backdoor/N_10
-envs/iclr_rebutal/cifar100/R/client_level/confuse/N_10
-envs/iclr_rebutal/cifar100/R/client_level/privacy/N_10
 envs/iclr_rebutal/cifar100/A0/data_level/backdoor/N_10/2/KL
 envs/iclr_rebutal/cifar100/A0/data_level/backdoor/N_10/6/KL
 envs/iclr_rebutal/cifar100/A0/data_level/backdoor/N_10/10/KL

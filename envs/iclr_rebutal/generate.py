@@ -540,9 +540,9 @@ def row_sort_key(m):
 # (title, rows, groups, divergences)
 STAGES = [
     ("1. core ablation, KL, backdoor + confuse (5 clients: data 2%, client level)",
-     ["R", "A7", "A0", "A2", "A1", "A3", "A4", "A5"], {0}, ("KL", "")),
+     ["A7", "A0", "A2", "A1", "A3", "A4", "A5"], {0}, ("KL", "")),
     ("2. same settings with JS", ["A0", "A7", "A3", "A4", "A5"], {0}, ("JS",)),
-    ("3. privacy on the same settings", ["R", "A7", "A0", "A2", "A5"], {1}, ("KL", "")),
+    ("3. privacy on the same settings", ["A7", "A0", "A2", "A5"], {1}, ("KL", "")),
     ("4. privacy, remaining ablation rows", ["A1", "A3", "A4"], {1}, ("KL", "")),
     ("5. budget-matched and max-only rows on the first settings (KL)", ["A5b", "A6", "A7b", "A8"], {0, 1}, ("KL", "")),
     ("6. budget-matched and max-only rows on the first settings (JS)", ["A5b", "A6", "A7b", "A8"], {0, 1}, ("JS",)),
@@ -557,7 +557,8 @@ def write_run_lists(key: str, manifest: list) -> None:
         (out / f"{row}_{key}.txt").write_text(
             "".join(m[7] + "\n" for m in items), encoding="utf-8", newline="\n")
     done, lines = set(), [f"# {DATASETS[key]['name']}: all envs in the order we should run them.",
-                          "# Lines starting with # are comments (skip them when looping).", ""]
+                          "# Lines starting with # are comments (skip them when looping).",
+                          f"# Row R (retrain) is not listed here, see R_{key}.txt.", ""]
     for title, rows, groups, divs in STAGES:
         chosen = [m for r in rows for m in sorted((m for m in manifest if m[1] == r), key=row_sort_key)
                   if setting_group(m[2], int(m[4]), int(m[5]) if m[5] != "" else None, m[3]) in groups
@@ -566,7 +567,7 @@ def write_run_lists(key: str, manifest: list) -> None:
         lines += [m[7] for m in chosen]
         lines.append("")
         done |= {m[0] for m in chosen}
-    rest = sorted((m for m in manifest if m[0] not in done),
+    rest = sorted((m for m in manifest if m[0] not in done and m[1] != "R"),  # R is run separately
                   key=lambda m: (row_sort_key(m)[0], ORDER.index(m[1])) + row_sort_key(m)[1:])
     lines.append(f"# --- 7. everything else (other settings, by setting group then row): {len(rest)} runs ---")
     lines += [m[7] for m in rest]

@@ -5,6 +5,8 @@ One folder per experiment. Each has a README, then `client_level/` (N=5, N=10) a
 Leaf folders are complete `EXP_ENV_DIR`s. `manifest.csv` maps every CONFIG_ID to its folder.
 Regenerate with `python envs/iclr_rebutal/generate.py` (reads `reference_configs*.json`; add
 `--index <runs_index.json>` to rebuild them from the server's run index).
+Settings applied to every env: batch size 512; learning rate 0.001 with plain cosine for the rows
+without MAX/MIN cycles (R, A1, A2); milestone-then-cosine rows keep the LR of the paper's run.
 Every CONFIG_ID starts with `9119` (`91190xxx` CIFAR-10, `91191xxx` CIFAR-100): filter on that prefix
 to pick out these runs, e.g. the `config_id` column of the `index_runs.py` output.
 
@@ -25,10 +27,10 @@ to pick out these runs, e.g. the `config_id` column of the `index_runs.py` outpu
 
 Run order: `../run_lists/run_order_cifar100.txt` (all envs, by priority) and
 `../run_lists/<ROW>_cifar100.txt` (one row, by priority).
-Run a list (skips comment lines):
+Run a list (skips comment and blank lines):
 
 ```bash
-grep -v '^#' envs/iclr_rebutal/run_lists/run_order_cifar100.txt | while read d; do
+grep -v '^\s*#' envs/iclr_rebutal/run_lists/run_order_cifar100.txt | grep -v '^\s*$' | while read d; do
   EXP_ENV_DIR=$d python -m simulate
 done
 ```

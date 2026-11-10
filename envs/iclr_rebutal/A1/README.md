@@ -31,7 +31,7 @@ Divergence variants: KL only.
 
 If A1 matches A0, the maximization step adds nothing on top of retain fine-tuning.
 
-**Notes.** Learning-rate schedule is plain cosine (milestones are only used when STARTING_PHASE=MAX).
+**Notes.** Learning-rate schedule is plain cosine from LR 0.001 (milestones are only used when STARTING_PHASE=MAX).
 
 ## Layout and how to run
 

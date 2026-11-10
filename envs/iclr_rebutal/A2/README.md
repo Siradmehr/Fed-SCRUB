@@ -26,7 +26,7 @@ Divergence variants: not applicable.
 
 The simplest control. Beating A2 is what shows the forgetting objective matters.
 
-**Notes.** Uses LOCAL_EPOCHS (10) per round and gradient clipping, unlike the MIN procedure. Learning-rate schedule is plain cosine.
+**Notes.** Uses LOCAL_EPOCHS (10) per round and gradient clipping, unlike the MIN procedure. Learning-rate schedule is plain cosine from LR 0.001.
 
 ## Layout and how to run
 

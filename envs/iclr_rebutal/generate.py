@@ -51,12 +51,16 @@ SETTINGS = (
     [("client_level", n, None) for n in (5, 10)]
     + [("data_level", n, p) for n in (5, 10) for p in (2, 6, 10)]
 )
+COSINE_ROWS = ("R", "A1", "A2")  # rows without the milestone schedule (plain cosine)
+COSINE_LR = "0.001"
+BATCH = "512"  # one batch size for all rows and both datasets (past runs used 256 in places)
+BATCH_KEYS = ("RETRAIN_BATCH", "FORGET_BATCH", "VAL_BATCH", "TEST_BATCH")
 ID_PREFIX = "9119"  # CONFIG_ID = ID_PREFIX + dataset digit + 3-digit counter
 # Per dataset: model, the budget of the paper's unlearning run (B rounds, the first L of them
 # MAX/MIN cycles), the number of rounds the reference run may have used (others are set to B).
 DATASETS = {
     "cifar10": dict(name="CIFAR-10", model="ResNet18_small", B=20, L=10, ref_rounds=(20,),
-                    digit="0", r_lr="0.001", r_batch="512", out=OUT, ref_file=OUT / "reference_configs.json", path_prefix="envs/iclr_rebutal"),
+                    digit="0", milestone_lr="0.05", out=OUT, ref_file=OUT / "reference_configs.json", path_prefix="envs/iclr_rebutal"),
     "cifar100": dict(name="CIFAR-100", model="ResNet18", B=30, L=2, ref_rounds=(30, 50),
                      digit="1", out=OUT / "cifar100", ref_file=OUT / "reference_configs_cifar100.json",
                      path_prefix="envs/iclr_rebutal/cifar100"),
@@ -233,7 +237,7 @@ ROWS = {
         train={"LR": "@pre:LR", "RETRAIN_BATCH": "@pre:RETRAIN_BATCH"},
         what="Federated training from random initialization on the retained data only "
              "(forget data and, at client level, the removed client are excluded). "
-             "Rounds and local epochs are those of the pretraining run of the same setting. CIFAR-10 uses LR 0.001 (the pretraining LR of 0.5 is too high for Adam) and batch size 512 in every setting.",
+             "Rounds and local epochs are those of the pretraining run of the same setting. The learning rate is 0.001 with a plain cosine schedule (0.5 is too high for Adam), and the batch size is 512.",
         read="This is the reference, not an ablation. Report every other row's gap to it "
              "(accuracy, ASR / confused accuracy, MIA). For MIA the target is this model's own MIA, not 50%.",
         notes="Does not use the pretrained model, so no RESUME. Needs ~the same time as pretraining. "
@@ -261,7 +265,7 @@ ROWS = {
         what="Start directly in post-training for all <B> rounds. There is no MAX step, so the forget "
              "data is never used. The loss is the same as A0's post-training.",
         read="If A1 matches A0, the maximization step adds nothing on top of retain fine-tuning.",
-        notes="Learning-rate schedule is plain cosine (milestones are only used when STARTING_PHASE=MAX).",
+        notes="Learning-rate schedule is plain cosine from LR 0.001 (milestones are only used when STARTING_PHASE=MAX).",
     ),
     "A2": dict(
         div=None,
@@ -273,7 +277,7 @@ ROWS = {
         what="<B> rounds of LEARN: cross-entropy on the retain data only, no teacher, no forget data.",
         read="The simplest control. Beating A2 is what shows the forgetting objective matters.",
         notes="Uses LOCAL_EPOCHS (10) per round and gradient clipping, unlike the MIN procedure. "
-              "Learning-rate schedule is plain cosine.",
+              "Learning-rate schedule is plain cosine from LR 0.001.",
     ),
     "A3": dict(
         div=("KL", "JS"),
@@ -391,10 +395,11 @@ def build_row(row, spec, ds, next_id, used_ids, manifest, refs) -> int:
             base_env, base_train = split_config(ref)
             env_over = from_pretrain(spec["env"], entry["pretrain_config"])
             train_over = from_pretrain(spec["train"], entry["pretrain_config"])
-            if row == "R" and ds.get("r_lr"):  # the pretraining LR (0.5 with Adam) is too high for a retrain
-                train_over["LR"] = ds["r_lr"]
-            if row == "R" and ds.get("r_batch"):  # same batch size for every retrain (two pretrains used 64)
-                train_over["RETRAIN_BATCH"] = ds["r_batch"]
+            if row in COSINE_ROWS:  # plain cosine from 0.001: 0.5 with Adam collapses the model
+                train_over["LR"] = COSINE_LR
+            elif ds.get("milestone_lr"):  # milestone-then-cosine rows start at 0.05 (0.5 with Adam is too high)
+                train_over["LR"] = ds["milestone_lr"]
+            train_over.update({k: BATCH for k in BATCH_KEYS})  # batch size 512 in every env
             for div in (spec["div"] or (None,)):
                 cid = f"{ID_PREFIX}{ds['digit']}{next_id[0]:03d}"
                 next_id[0] += 1
@@ -498,6 +503,9 @@ def top_readme(id_ranges: dict, ds: dict, key: str) -> str:
         "Leaf folders are complete `EXP_ENV_DIR`s. `manifest.csv` maps every CONFIG_ID to its folder.",
         "Regenerate with `python envs/iclr_rebutal/generate.py` (reads `reference_configs*.json`; add",
         "`--index <runs_index.json>` to rebuild them from the server's run index).",
+        "Settings applied to every env: batch size 512; learning rate 0.001 with plain cosine for the rows",
+        "without MAX/MIN cycles (R, A1, A2)" + ("; milestone-then-cosine rows start at 0.05." if ds.get("milestone_lr")
+                                                 else "; milestone-then-cosine rows keep the LR of the paper's run."),
         "Every CONFIG_ID starts with `9119` (`91190xxx` CIFAR-10, `91191xxx` CIFAR-100): filter on that prefix",
         "to pick out these runs, e.g. the `config_id` column of the `index_runs.py` output.",
         "",
@@ -512,10 +520,10 @@ def top_readme(id_ranges: dict, ds: dict, key: str) -> str:
         "",
         f"Run order: `{'' if key == 'cifar10' else '../'}run_lists/run_order_{key}.txt` (all envs, by priority) and",
         f"`{'' if key == 'cifar10' else '../'}run_lists/<ROW>_{key}.txt` (one row, by priority).",
-        "Run a list (skips comment lines):",
+        "Run a list (skips comment and blank lines):",
         "",
         "```bash",
-        f"grep -v '^#' envs/iclr_rebutal/run_lists/run_order_{key}.txt | while read d; do",
+        f"grep -v '^\s*#' envs/iclr_rebutal/run_lists/run_order_{key}.txt | grep -v '^\s*$' | while read d; do",
         "  EXP_ENV_DIR=$d python -m simulate",
         "done",
         "```",
